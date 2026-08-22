@@ -41,24 +41,50 @@ def swap(old, new, label, count=1):
     print("  ok   ", label)
 
 # ---------------------------------------------------------------- projects
+# Every live personal project. FET/Forum work tools, duplicate deploys, and
+# RepDash (shows real behavioral-health client data) are deliberately out.
+# Types come from each project's own title or on-screen copy - nothing invented.
 PROJECTS = [
-    ("1", "01", "CAMPFIRE",         "PRIVATE SOCIAL APP", "app",  "https://campfire-circles.netlify.app/",        "campfire.jpg"),
-    ("2", "02", "SUNSET RIDGE",     "IDLE RANCH GAME",    "game", "https://sunset-ridge-ranch-game.netlify.app/", "sunsetridge.jpg"),
-    ("3", "03", "MONSTER MUNCH",    "ARCADE GAME",        "game", "https://monster-munch-bsonnier.netlify.app/",  "monstermunch.jpg"),
-    ("4", "04", "CRAWFISH KINGDOM", "BAYOU ADVENTURE",    "game", "https://crawfish-kingdom.netlify.app/",        "crawfish.jpg"),
-    ("5", "05", "LITTLE GLOW",      "ILLUSTRATED STORY",  "web",  "https://little-glow-story.netlify.app/",       "littleglow.jpg"),
-    ("6", "06", "CASTAWAY PIZZA",   "RESTAURANT SITE",    "web",  "https://castaway-pizza-co.netlify.app/",       "castaway.jpg"),
+    # games
+    ("1",  "01", "SUNSET RIDGE",     "IDLE RANCH GAME",           "game", "https://sunset-ridge-ranch-game.netlify.app/",           "sunsetridge.jpg"),
+    ("2",  "02", "MONSTER MUNCH",    "ARCADE GAME",               "game", "https://monster-munch-bsonnier.netlify.app/",            "monstermunch.jpg"),
+    ("3",  "03", "CRAWFISH KINGDOM", "BAYOU ADVENTURE",           "game", "https://crawfish-kingdom.netlify.app/",                  "crawfish.jpg"),
+    ("4",  "04", "TANK TACTICS",     "RETRO TANK COMBAT",         "game", "https://tank-tactics-retro-reload.netlify.app/",         "tanktactics.jpg"),
+    ("5",  "05", "SPELLCASTER SIEGE","SPELL DEFENSE",             "game", "https://spellcaster-siege.netlify.app/",                 "spellcaster.jpg"),
+    ("6",  "06", "ORGANISM",         "CAVE DESCENT",              "game", "https://organism-game.netlify.app/",                     "organism.jpg"),
+    ("7",  "07", "PLANET PARADE",    "SPACE EXPLORER",            "game", "https://planet-parade-explorer.netlify.app/",            "planetparade.jpg"),
+    ("8",  "08", "GRID DEFENSE",     "ARCADE DEFENSE",            "game", "https://grid-defense.netlify.app/",                      "griddefense.jpg"),
+    ("9",  "09", "DEEP VEIN",        "SPACE MINING",              "game", "https://deep-vein-bsonnier.netlify.app/",                "deepvein.jpg"),
+    ("10", "10", "SPARKS",           "ELECTRICIAN SIDE-SCROLLER", "game", "https://sparks-electrician.netlify.app/",                "sparks.jpg"),
+    ("11", "11", "SCAVENGE RABBIT",  "SCAVENGER HUNTS",           "game", "https://scavenge-rabbit.netlify.app/",                   "scavenge.jpg"),
+    ("12", "12", "BENNY'S BLACKBERRIES", "A STORY ABOUT SHARING", "game", "https://bennys-blackberries.netlify.app/",               "bennys.jpg"),
+    ("13", "13", "LUKE'S ROAD TRIP", "DRIVING GAME",              "game", "https://lukes-road-trip-full-project.netlify.app/",      "lukes.jpg"),
+    # apps and tools
+    ("14", "14", "CAMPFIRE",         "PRIVATE SOCIAL APP",        "app",  "https://campfire-circles.netlify.app/",                  "campfire.jpg"),
+    ("15", "15", "TIDAL PM",         "PROJECT MANAGEMENT",        "app",  "https://tidal-pm.netlify.app/",                          "tidal.jpg"),
+    ("16", "16", "MTG LIFE COUNTER", "LIFE COUNTER",              "app",  "https://magicthegatheringlifecounter-southbaw.netlify.app/", "mtglife.jpg"),
+    ("17", "17", "QSNAP",            "PHOTO TO QR",               "app",  "https://qsnap-app.netlify.app/",                         "qsnap.jpg"),
+    ("18", "18", "ABIDE",            "APP",                       "app",  "https://abide-app-brian.netlify.app/",                   "abide.jpg"),
+    ("19", "19", "RABBIT LAB",       "PAYLOAD TESTER",            "app",  "https://rabbit-payload-lab.netlify.app/",                "rabbitlab.jpg"),
+    ("20", "20", "VOXBOX",           "APP",                       "app",  "https://voxbox-app.netlify.app/",                        None),
+    # sites
+    ("21", "21", "THE LOOKING GLASS","ETCHED MIRROR STUDIO",      "web",  "https://looking-glass-studio.netlify.app/",              "lookingglass.jpg"),
+    ("22", "22", "CASTAWAY PIZZA",   "RESTAURANT SITE",           "web",  "https://castaway-pizza-co.netlify.app/",                 "castaway.jpg"),
+    ("23", "23", "LITTLE GLOW",      "ILLUSTRATED STORY",         "web",  "https://little-glow-story.netlify.app/",                 "littleglow.jpg"),
+    ("24", "24", "MIRAGE",           "SHOP DEMO",                 "web",  "https://mirage-shop-demo.netlify.app/",                  "mirage.jpg"),
+    ("25", "25", "BANNERFALL",       "PROTOTYPE",                 "web",  "https://bannerfall-demo.netlify.app/",                   "bannerfall.jpg"),
 ]
 
 print("1. works array")
 wm = re.search(r"const works = \[.*?\];", page, re.S)
 if not wm:
     sys.exit("works array not found")
+q = lambda s: s.replace("\\", "\\\\").replace("'", "\\'")   # BENNY'S / LUKE'S
 rows = "\n".join(
     "      { id: '%s', n: '%s', title: '%s', type: '%s', year: 'LIVE', tag: '%s', url: '%s' },"
-    % (i, n, t, ty, tag, url) for i, n, t, ty, tag, url, _ in PROJECTS)
+    % (i, n, q(t), q(ty), tag, url) for i, n, t, ty, tag, url, _ in PROJECTS)
 page = page[:wm.start()] + "const works = [\n" + rows + "\n    ];" + page[wm.end():]
-print("  ok    6 real projects")
+print("  ok    %d real projects" % len(PROJECTS))
 
 # ---------------------------------------------------------------- card -> link
 print("2. work cards link out")
@@ -135,6 +161,9 @@ out = raw[:m.start(2)] + json.dumps(page).replace("</", "<\\/") + raw[m.end(2):]
 print("7. image slots")
 used = {"retro-poster": slots["retro-poster"]}
 for i, n, t, ty, tag, url, img in PROJECTS:
+    if img is None:                      # no usable screenshot; slot shows its title tile
+        print("  --    retro-work-%s has no image (%s)" % (i, t))
+        continue
     p = os.path.join(HERE, "img", img)
     if not os.path.exists(p):
         sys.exit("missing image " + p)
