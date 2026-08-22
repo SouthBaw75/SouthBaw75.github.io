@@ -1,216 +1,386 @@
-<!DOCTYPE HTML>
-<!--
-	Massively by HTML5 UP
-	html5up.net | @ajlkn
-	Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
--->
-<html>
-	<head>
-		<title>Brian Anthony Sonnier</title>
-		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-		<meta name="description" content="Brian Anthony Sonnier — Realtor, student, and creator. Real estate in South Louisiana with Keller Williams Realty Acadiana." />
-		<link rel="stylesheet" href="assets/css/main.css" />
-		<noscript><link rel="stylesheet" href="assets/css/noscript.css" /></noscript>
-	</head>
-	<body class="is-preload">
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Brian Anthony Sonnier</title>
+<meta name="description" content="Brian Anthony Sonnier — I build small games, tools, and web apps in South Louisiana. Twenty of them are live right now.">
+<meta name="theme-color" content="#F5F2EA">
+<meta property="og:title" content="Brian Anthony Sonnier">
+<meta property="og:description" content="Small games, tools, and web apps. Most of them are live — click any of them.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://briananthonysonnier.com/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233A5A43'/%3E%3Ctext x='16' y='23' font-family='Georgia,serif' font-size='19' fill='%23F5F2EA' text-anchor='middle'%3EB%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Karla:wght@400;500;600&display=swap">
+<style>
+:root{
+  --paper:#F5F2EA;
+  --paper-2:#EDE8DC;
+  --paper-3:#E4DED0;
+  --ink:#1C1F1A;
+  --muted:#5A6055;
+  --dim:#878C80;
+  --line:rgba(28,31,26,.15);
+  --line-soft:rgba(28,31,26,.09);
+  --moss:#3A5A43;
+  --moss-lift:#2C4633;
+  --display:"Fraunces",Georgia,"Times New Roman",serif;
+  --body:"Karla",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --wrap:1120px;
+  --ease:cubic-bezier(.23,1,.32,1);
+  --ease-hover:cubic-bezier(.4,0,.2,1);
+}
+*{box-sizing:border-box;}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;overflow-x:clip;}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--body);font-size:17px;line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+img{display:block;max-width:100%;}
+a{color:inherit;}
+:focus-visible{outline:2px solid var(--moss);outline-offset:3px;border-radius:2px;}
+::selection{background:var(--moss);color:var(--paper);}
 
-		<!-- Wrapper -->
-		<div id="wrapper" class="fade-in">
+h1,h2,h3{font-family:var(--display);font-weight:400;margin:0;letter-spacing:-.015em;text-wrap:balance;}
+h1{font-size:clamp(2.5rem,6.4vw,4.7rem);line-height:1.03;}
+h2{font-size:clamp(1.7rem,3.4vw,2.6rem);line-height:1.1;}
+h3{font-size:1.16rem;line-height:1.25;}
+p{margin:0 0 1.05em;}
+.lede{font-size:clamp(1.02rem,1.5vw,1.17rem);color:var(--muted);max-width:58ch;}
 
-			<!-- Intro -->
-			<div id="intro">
-				<h1>Brian Anthony<br />Sonnier</h1>
-				<p>
-					Realtor at Keller Williams Realty Acadiana • South Louisiana<br />
-					Student • Content Creator • Builder of useful things
-				</p>
-				<ul class="actions">
-					<li><a href="#header" class="button icon solid solo fa-arrow-down scrolly">Continue</a></li>
-				</ul>
-			</div>
+.wrap{width:100%;max-width:var(--wrap);margin:0 auto;padding:0 28px;}
+section{padding:clamp(60px,8vw,104px) 0;}
+#work{padding-top:clamp(38px,5vw,68px);}
+.eyebrow{
+  font-size:11px;letter-spacing:.17em;text-transform:uppercase;color:var(--dim);
+  font-weight:600;margin:0 0 14px;display:flex;align-items:center;gap:12px;
+}
+.eyebrow::after{content:"";height:1px;flex:1;background:var(--line);max-width:90px;}
 
-			<!-- Header -->
-			<header id="header">
-				<a href="index.html" class="logo">BRIAN</a>
-			</header>
+/* ---------- header ---------- */
+.top{
+  position:sticky;top:0;z-index:40;background:rgba(245,242,234,.9);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--line-soft);
+}
+.top-in{display:flex;align-items:center;gap:26px;height:64px;}
+.mark{
+  font-family:var(--display);font-size:1.13rem;letter-spacing:-.01em;
+  text-decoration:none;margin-right:auto;white-space:nowrap;
+}
+.mark b{font-weight:600;}
+.top nav{display:flex;gap:24px;}
+.top nav a{
+  font-size:.9rem;text-decoration:none;color:var(--muted);position:relative;padding:4px 0;
+  transition:color .2s var(--ease-hover);
+}
+.top nav a::after{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:var(--ink);
+  transform:scaleX(0);transform-origin:left;transition:transform .26s var(--ease);
+}
+.top nav a:hover{color:var(--ink);}
+.top nav a:hover::after{transform:scaleX(1);}
 
-			<!-- Nav -->
-			<nav id="nav">
-				<ul class="links">
-					<li class="active"><a href="index.html">Home</a></li>
-					<li><a href="#about" class="scrolly">About</a></li>
-					<li><a href="#services" class="scrolly">Real Estate</a></li>
-					<li><a href="#projects" class="scrolly">Projects</a></li>
-					<li><a href="#footer" class="scrolly">Contact</a></li>
-				</ul>
-				<ul class="icons">
-					<!-- Replace # links with your real profiles when ready -->
-					<li><a href="#" class="icon brands fa-instagram" aria-label="Instagram"><span class="label">Instagram</span></a></li>
-					<li><a href="#" class="icon brands fa-facebook-f" aria-label="Facebook"><span class="label">Facebook</span></a></li>
-					<li><a href="#" class="icon brands fa-youtube" aria-label="YouTube"><span class="label">YouTube</span></a></li>
-					<li><a href="https://github.com/SouthBaw75" class="icon brands fa-github" aria-label="GitHub"><span class="label">GitHub</span></a></li>
-				</ul>
-			</nav>
+/* ---------- hero ---------- */
+.hero{padding-top:clamp(52px,8vw,96px);padding-bottom:clamp(40px,5vw,64px);}
+.hero h1 em{font-style:italic;color:var(--moss);}
+.hero .lede{margin-top:26px;}
+.facts{
+  display:flex;flex-wrap:wrap;gap:0;margin-top:44px;
+  border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+}
+.fact{padding:20px 30px 20px 0;margin-right:30px;border-right:1px solid var(--line-soft);}
+.fact:last-child{border-right:0;margin-right:0;padding-right:0;}
+.fact b{display:block;font-family:var(--display);font-size:1.85rem;font-weight:400;line-height:1;}
+.fact span{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:600;}
 
-			<!-- Main -->
-			<div id="main">
+/* ---------- project grid ---------- */
+.sechead{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;margin-bottom:38px;}
+.sechead p{margin:12px 0 0;}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:34px 26px;}
+.card{display:block;text-decoration:none;}
+.shot{
+  aspect-ratio:16/11;overflow:hidden;background:var(--paper-3);
+  border:1px solid var(--line-soft);border-radius:3px;
+  transition:transform .32s var(--ease),box-shadow .32s var(--ease),border-color .32s var(--ease);
+}
+.shot img{width:100%;height:100%;object-fit:cover;object-position:center top;}
+.card h3{margin-top:16px;transition:color .2s var(--ease-hover);}
+.card p{font-size:.92rem;color:var(--muted);margin:5px 0 0;}
+.tag{
+  display:inline-block;margin-top:11px;font-size:10px;letter-spacing:.15em;text-transform:uppercase;
+  font-weight:600;color:var(--moss);border:1px solid rgba(58,90,67,.3);padding:3px 8px;border-radius:2px;
+}
+@media (hover:hover) and (pointer:fine){
+  .card:hover .shot{transform:translateY(-4px);box-shadow:0 16px 34px -22px rgba(28,31,26,.5);border-color:var(--line);}
+  .card:hover h3{color:var(--moss);}
+}
+.card:active .shot{transform:translateY(-1px);}
 
-				<!-- Featured -->
-				<article class="post featured" id="about">
-					<header class="major">
-						<span class="date">South Louisiana</span>
-						<h2><a href="#footer" class="scrolly">Helping people buy, sell,<br />and move with confidence</a></h2>
-						<p>
-							I’m Brian Anthony Sonnier — a Keller Williams agent based in South Louisiana.
-							I focus on clear guidance, honest pricing strategy, strong marketing, and smooth execution from “thinking about it”
-							to closing day.
-						</p>
-					</header>
-					<!-- Optional: swap pic01.jpg with a good headshot or a strong local/lifestyle image -->
-					<a href="#footer" class="image main scrolly"><img src="images/pic01.jpg" alt="Brian Anthony Sonnier" /></a>
-					<ul class="actions special">
-						<li><a href="#footer" class="button large scrolly">Contact Me</a></li>
-					</ul>
-				</article>
+/* ---------- index list ---------- */
+.band{background:var(--paper-2);border-top:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft);}
+.cols{display:grid;grid-template-columns:repeat(3,1fr);gap:38px;}
+.cols h3{font-size:.78rem;letter-spacing:.15em;text-transform:uppercase;font-family:var(--body);
+  font-weight:600;color:var(--dim);margin-bottom:14px;}
+.cols ul{list-style:none;margin:0;padding:0;display:grid;gap:2px;}
+.cols li a{
+  display:flex;justify-content:space-between;align-items:baseline;gap:14px;
+  text-decoration:none;padding:9px 0;border-bottom:1px solid var(--line-soft);
+  transition:color .18s var(--ease-hover),padding-left .22s var(--ease);
+}
+.cols li a span{font-size:.95rem;}
+.cols li a i{font-style:normal;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);}
+.cols li a:hover{color:var(--moss);padding-left:6px;}
+.cols li a:hover i{color:var(--moss);}
 
-				<!-- Services / Real Estate -->
-				<section class="posts" id="services">
-					<article>
-						<header>
-							<span class="date">For Sellers</span>
-							<h2><a href="#footer" class="scrolly">Sell for the<br />right price</a></h2>
-						</header>
-						<a href="#footer" class="image fit scrolly"><img src="images/pic02.jpg" alt="Home selling" /></a>
-						<p>
-							Strategic pricing, sharp presentation, and marketing that gets attention. I’ll give you a clear plan,
-							a clean timeline, and honest recommendations to maximize your outcome.
-						</p>
-						<ul class="actions special">
-							<li><a href="#footer" class="button scrolly">Get a pricing plan</a></li>
-						</ul>
-					</article>
+/* ---------- about ---------- */
+.about{display:grid;grid-template-columns:.8fr 1.2fr;gap:clamp(28px,5vw,70px);align-items:start;}
+.about p{max-width:60ch;}
+.about p:last-child{margin-bottom:0;}
 
-					<article>
-						<header>
-							<span class="date">For Buyers</span>
-							<h2><a href="#footer" class="scrolly">Buy smart<br />without stress</a></h2>
-						</header>
-						<a href="#footer" class="image fit scrolly"><img src="images/pic03.jpg" alt="Home buying" /></a>
-						<p>
-							From first showing to the final signature: clear communication, strong negotiation, and no surprises.
-							I’ll help you make confident decisions (and avoid expensive mistakes).
-						</p>
-						<ul class="actions special">
-							<li><a href="#footer" class="button scrolly">Start a home search</a></li>
-						</ul>
-					</article>
+/* ---------- contact ---------- */
+.contact-row{display:flex;flex-wrap:wrap;gap:14px;margin-top:30px;}
+.btn{
+  display:inline-flex;align-items:center;gap:10px;text-decoration:none;
+  padding:14px 24px;border-radius:2px;border:1px solid var(--ink);
+  font-size:.88rem;font-weight:500;
+  transition:background .22s var(--ease-hover),color .22s var(--ease-hover),transform .14s var(--ease);
+}
+.btn:hover{background:var(--ink);color:var(--paper);}
+.btn:active{transform:scale(.975);}
+.btn-solid{background:var(--moss);border-color:var(--moss);color:var(--paper);}
+.btn-solid:hover{background:var(--moss-lift);border-color:var(--moss-lift);color:var(--paper);}
 
-					<article>
-						<header>
-							<span class="date">Local Knowledge</span>
-							<h2><a href="#footer" class="scrolly">South Louisiana<br />insight</a></h2>
-						</header>
-						<a href="#footer" class="image fit scrolly"><img src="images/pic04.jpg" alt="South Louisiana" /></a>
-						<p>
-							Neighborhood context matters. I work with clients across the Acadiana area and focus on realistic comps,
-							true condition, and what buyers actually respond to right now.
-						</p>
-						<ul class="actions special">
-							<li><a href="#footer" class="button scrolly">Ask a question</a></li>
-						</ul>
-					</article>
+/* ---------- footer ---------- */
+footer{border-top:1px solid var(--line-soft);padding:36px 0 44px;}
+.foot-in{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;
+  font-size:.83rem;color:var(--dim);}
+.foot-in a{color:var(--dim);text-decoration:none;}
+.foot-in a:hover{color:var(--ink);}
 
-					<article id="projects">
-						<header>
-							<span class="date">Creator Mode</span>
-							<h2><a href="#footer" class="scrolly">Projects &<br />content</a></h2>
-						</header>
-						<a href="#footer" class="image fit scrolly"><img src="images/pic05.jpg" alt="Projects" /></a>
-						<p>
-							I build and share practical tools, creative projects, and experiments — from design to tech.
-							This site will grow into a hub for everything I’m working on.
-						</p>
-						<ul class="actions special">
-							<li><a href="#footer" class="button scrolly">Connect</a></li>
-						</ul>
-					</article>
-				</section>
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto;}
+  *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.12s!important;}
+  .card:hover .shot{transform:none;}
+}
 
-			</div>
+@media(max-width:900px){
+  .grid{grid-template-columns:repeat(2,1fr);}
+  .cols{grid-template-columns:repeat(2,1fr);}
+  .about{grid-template-columns:1fr;gap:20px;}
+}
+@media(max-width:640px){
+  .wrap{padding:0 20px;}
+  .grid{grid-template-columns:1fr;gap:30px;}
+  .cols{grid-template-columns:1fr;gap:30px;}
+  .top nav{gap:18px;}
+  .top nav a{font-size:.84rem;}
+  .mark{font-size:1rem;}
+  .facts{display:grid;grid-template-columns:1fr 1fr;}
+  .fact{padding:16px 18px 16px 0;margin-right:0;border-right:1px solid var(--line-soft);}
+  .fact:nth-child(2n){border-right:0;padding-right:0;}
+  .fact:nth-child(3){grid-column:1/-1;border-top:1px solid var(--line-soft);border-right:0;}
+  .fact b{font-size:1.5rem;}
+}
+@media(max-width:420px){
+  .top nav a[data-opt]{display:none;}
+}
+</style>
+</head>
+<body>
 
-			<!-- Footer -->
-			<footer id="footer">
-				<section>
-					<!-- NOTE: This form does not send anywhere yet.
-					     Easiest free option later: Formspree or Netlify Forms (requires slight change). -->
-					<form method="post" action="#">
-						<div class="fields">
-							<div class="field">
-								<label for="name">Name</label>
-								<input type="text" name="name" id="name" />
-							</div>
-							<div class="field">
-								<label for="email">Email</label>
-								<input type="text" name="email" id="email" />
-							</div>
-							<div class="field">
-								<label for="message">Message</label>
-								<textarea name="message" id="message" rows="3"></textarea>
-							</div>
-						</div>
-						<ul class="actions">
-							<li><input type="submit" value="Send Message" /></li>
-						</ul>
-					</form>
-				</section>
+<header class="top">
+  <div class="wrap top-in">
+    <a class="mark" href="#top">Brian Anthony <b>Sonnier</b></a>
+    <nav>
+      <a href="#work">Work</a>
+      <a href="#more" data-opt>Everything</a>
+      <a href="#about">About</a>
+      <a href="#contact">Contact</a>
+    </nav>
+  </div>
+</header>
 
-				<section class="split contact">
-					<section class="alt">
-						<h3>Location</h3>
-						<p>South Louisiana (Acadiana)</p>
-					</section>
-					<section>
-						<h3>Email</h3>
-						<p><a href="mailto:hello@briananthonysonnier.com">hello@briananthonysonnier.com</a></p>
-					</section>
-					<section>
-						<h3>Brokerage</h3>
-						<p>Keller Williams Realty Acadiana</p>
-					</section>
-					<section>
-						<h3>Social</h3>
-						<ul class="icons alt">
-							<li><a href="#" class="icon brands alt fa-instagram"><span class="label">Instagram</span></a></li>
-							<li><a href="#" class="icon brands alt fa-facebook-f"><span class="label">Facebook</span></a></li>
-							<li><a href="#" class="icon brands alt fa-youtube"><span class="label">YouTube</span></a></li>
-							<li><a href="https://github.com/SouthBaw75" class="icon brands alt fa-github"><span class="label">GitHub</span></a></li>
-						</ul>
-					</section>
-				</section>
-			</footer>
+<main id="top">
 
-			<!-- Copyright -->
-			<div id="copyright">
-				<ul>
-					<li>&copy; <span id="year"></span> Brian Anthony Sonnier</li>
-					<li>Design: <a href="https://html5up.net">HTML5 UP</a></li>
-				</ul>
-			</div>
+  <section class="hero">
+    <div class="wrap">
+      <h1>I build small things<br>and put them <em>online</em>.</h1>
+      <p class="lede">Games, tools, and experiments — made mostly at night, in South Louisiana. Twenty of them are live right now, and every one of them is a link you can click.</p>
+      <div class="facts">
+        <div class="fact"><b>20</b><span>Live projects</span></div>
+        <div class="fact"><b>22</b><span>Repositories</span></div>
+        <div class="fact"><b>South LA</b><span>Where they get made</span></div>
+      </div>
+    </div>
+  </section>
 
-		</div>
+  <section id="work">
+    <div class="wrap">
+      <div class="sechead">
+        <div>
+          <p class="eyebrow">Selected work</p>
+          <h2>Things you can actually use</h2>
+          <p class="lede">No case studies, no mockups. These are running right now — open one and it works.</p>
+        </div>
+      </div>
 
-		<!-- Scripts -->
-		<script src="assets/js/jquery.min.js"></script>
-		<script src="assets/js/jquery.scrollex.min.js"></script>
-		<script src="assets/js/jquery.scrolly.min.js"></script>
-		<script src="assets/js/browser.min.js"></script>
-		<script src="assets/js/breakpoints.min.js"></script>
-		<script src="assets/js/util.js"></script>
-		<script src="assets/js/main.js"></script>
-		<script>
-			document.getElementById("year").textContent = new Date().getFullYear();
-		</script>
+      <div class="grid">
 
-	</body>
+        <a class="card" href="https://levelupretro.netlify.app/" target="_blank" rel="noopener">
+          <div class="shot"><img src="img/levelup.jpg" alt="LevelUP — synthwave fitness tracker start screen" loading="lazy" width="1000" height="656"></div>
+          <h3>LevelUP</h3>
+          <p>A gamified, synthwave fitness tracker with an AI guru.</p>
+          <span class="tag">App</span>
+        </a>
+
+        <a class="card" href="https://campfire-circles.netlify.app/" target="_blank" rel="noopener">
+          <div class="shot"><img src="img/campfire.jpg" alt="Campfire — welcome screen with an illustrated night campsite" loading="lazy" width="1000" height="656"></div>
+          <h3>Campfire</h3>
+          <p>Small private circles for the people you actually want to keep up with.</p>
+          <span class="tag">App</span>
+        </a>
+
+        <a class="card" href="https://tallypoll.netlify.app/" target="_blank" rel="noopener">
+          <div class="shot"><img src="img/tallypoll.jpg" alt="TallyPoll — sign in screen" loading="lazy" width="1000" height="656"></div>
+          <h3>TallyPoll</h3>
+          <p>Create polls, vote, and decide with your group in style.</p>
+          <span class="tag">Tool</span>
+        </a>
+
+        <a class="card" href="https://bullrun-app.netlify.app/" target="_blank" rel="noopener">
+          <div class="shot"><img src="img/bullrun.jpg" alt="BullRun — landing screen with a neon green bull" loading="lazy" width="1000" height="656"></div>
+          <h3>BullRun</h3>
+          <p>A competitive investing app where portfolios go head-to-head.</p>
+          <span class="tag">App</span>
+        </a>
+
+        <a class="card" href="https://monster-munch-bsonnier.netlify.app/" target="_blank" rel="noopener">
+          <div class="shot"><img src="img/monstermunch.jpg" alt="Monster Munch — illustrated title screen" loading="lazy" width="1000" height="656"></div>
+          <h3>Monster Munch</h3>
+          <p>Tap to play. A bright little arcade game for small hands.</p>
+          <span class="tag">Game</span>
+        </a>
+
+        <a class="card" href="https://crawfish-kingdom.netlify.app/" target="_blank" rel="noopener">
+          <div class="shot"><img src="img/crawfish.jpg" alt="Crawfish Kingdom — illustrated bayou title screen" loading="lazy" width="1000" height="656"></div>
+          <h3>Crawfish Kingdom</h3>
+          <p>A bayou adventure. Closest thing here to a love letter home.</p>
+          <span class="tag">Game</span>
+        </a>
+
+        <a class="card" href="https://tank-tactics-retro-reload.netlify.app/" target="_blank" rel="noopener">
+          <div class="shot"><img src="img/tanktactics.jpg" alt="Tank Tactics Retro Reload — terminal-green boot sequence" loading="lazy" width="1000" height="656"></div>
+          <h3>Tank Tactics: Retro Reload</h3>
+          <p>Tank combat that boots up like a machine from 1983.</p>
+          <span class="tag">Game</span>
+        </a>
+
+        <a class="card" href="https://little-glow-story.netlify.app/" target="_blank" rel="noopener">
+          <div class="shot"><img src="img/littleglow.jpg" alt="Little Glow — illustrated firefly in tall grass at night" loading="lazy" width="1000" height="656"></div>
+          <h3>Little Glow</h3>
+          <p>A firefly's bedtime story, illustrated and read aloud.</p>
+          <span class="tag">Storybook</span>
+        </a>
+
+        <a class="card" href="https://castaway-pizza-co.netlify.app/" target="_blank" rel="noopener">
+          <div class="shot"><img src="img/castaway.jpg" alt="Castaway Pizza Co. — restaurant site with a sunset beach photo" loading="lazy" width="1000" height="656"></div>
+          <h3>Castaway Pizza Co.</h3>
+          <p>Flour. Water. Fire. Paradise. A full restaurant site, start to finish.</p>
+          <span class="tag">Site</span>
+        </a>
+
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="more">
+    <div class="wrap">
+      <div class="sechead">
+        <div>
+          <p class="eyebrow">The rest of it</p>
+          <h2>Everything else that's up</h2>
+          <p class="lede">Some polished, some abandoned the day they worked. Both are left standing on purpose.</p>
+        </div>
+      </div>
+      <div class="cols">
+        <div>
+          <h3>Games &amp; play</h3>
+          <ul>
+            <li><a href="https://spellcaster-siege.netlify.app/" target="_blank" rel="noopener"><span>Spellcaster Siege</span><i>Live</i></a></li>
+            <li><a href="https://organism-game.netlify.app/" target="_blank" rel="noopener"><span>Organism</span><i>Live</i></a></li>
+            <li><a href="https://planet-parade-explorer.netlify.app/" target="_blank" rel="noopener"><span>Planet Parade</span><i>Live</i></a></li>
+            <li><a href="https://github.com/SouthBaw75/ORBITZ" target="_blank" rel="noopener"><span>ORBITZ</span><i>Code</i></a></li>
+            <li><a href="https://github.com/SouthBaw75/LifeSim" target="_blank" rel="noopener"><span>LifeSim</span><i>Code</i></a></li>
+            <li><a href="https://github.com/SouthBaw75/the_herd" target="_blank" rel="noopener"><span>The Herd</span><i>Code</i></a></li>
+          </ul>
+        </div>
+        <div>
+          <h3>Tools &amp; apps</h3>
+          <ul>
+            <li><a href="https://voxbox-app.netlify.app/" target="_blank" rel="noopener"><span>VoxBox</span><i>Live</i></a></li>
+            <li><a href="https://abide-app-brian.netlify.app/" target="_blank" rel="noopener"><span>Abide</span><i>Live</i></a></li>
+            <li><a href="https://qsnap-app.netlify.app/" target="_blank" rel="noopener"><span>QSnap</span><i>Live</i></a></li>
+            <li><a href="https://tickerboy.netlify.app/" target="_blank" rel="noopener"><span>TickerBoy</span><i>Live</i></a></li>
+            <li><a href="https://magicthegatheringlifecounter-southbaw.netlify.app/" target="_blank" rel="noopener"><span>MTG Life Counter</span><i>Live</i></a></li>
+            <li><a href="https://github.com/SouthBaw75/MTG-Deck-Weaver" target="_blank" rel="noopener"><span>MTG Deck Weaver</span><i>Code</i></a></li>
+          </ul>
+        </div>
+        <div>
+          <h3>Sites &amp; odds</h3>
+          <ul>
+            <li><a href="https://tiny-eden.netlify.app/" target="_blank" rel="noopener"><span>Tiny Eden</span><i>Live</i></a></li>
+            <li><a href="https://looking-glass-studio.netlify.app/" target="_blank" rel="noopener"><span>The Looking Glass Studio</span><i>Live</i></a></li>
+            <li><a href="https://qrdogtags.netlify.app/" target="_blank" rel="noopener"><span>QR Dog Tags</span><i>Live</i></a></li>
+            <li><a href="https://github.com/SouthBaw75/sprite-a-matic" target="_blank" rel="noopener"><span>Sprite-a-Matic</span><i>Code</i></a></li>
+            <li><a href="https://github.com/SouthBaw75/dogtags" target="_blank" rel="noopener"><span>Dogtags</span><i>Code</i></a></li>
+            <li><a href="https://github.com/SouthBaw75?tab=repositories" target="_blank" rel="noopener"><span>All repositories</span><i>GitHub</i></a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="about">
+    <div class="wrap">
+      <div class="about">
+        <div>
+          <p class="eyebrow">About</p>
+          <h2>Hey — I'm Brian.</h2>
+        </div>
+        <div>
+          <p>I live in South Louisiana and I make things. Mostly small web apps and games that started as an idea I couldn't stop turning over, and ended as something I could open in a browser.</p>
+          <p>Most of what's on this page got built in evenings and weekends. A few are genuinely finished. Several are prototypes I stopped touching the afternoon they finally worked. I've left both kinds up, because that's what building actually looks like, and pretending otherwise never helped anybody.</p>
+          <p>If something here is useful to you, take it. If you want to know how one of them works, ask — I'll tell you more than you wanted to know.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="contact">
+    <div class="wrap">
+      <p class="eyebrow">Contact</p>
+      <h2>Say hello</h2>
+      <p class="lede" style="margin-top:14px">Questions, ideas, or something you want built — email is the fastest way to reach me.</p>
+      <div class="contact-row">
+        <a class="btn btn-solid" href="mailto:hello@briananthonysonnier.com">hello@briananthonysonnier.com</a>
+        <a class="btn" href="https://github.com/SouthBaw75" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap foot-in">
+    <span>&copy; <span id="yr">2026</span> Brian Anthony Sonnier</span>
+    <span>Built by hand in South Louisiana</span>
+  </div>
+</footer>
+
+<script>document.getElementById('yr').textContent=new Date().getFullYear();</script>
+</body>
 </html>
