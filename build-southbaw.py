@@ -56,7 +56,6 @@ PROJECTS = [
     ("8",  "08", "GRID DEFENSE",     "ARCADE DEFENSE",            "game", "https://grid-defense.netlify.app/",                      "griddefense.jpg"),
     ("9",  "09", "DEEP VEIN",        "SPACE MINING",              "game", "https://deep-vein-bsonnier.netlify.app/",                "deepvein.jpg"),
     ("10", "10", "SPARKS",           "ELECTRICIAN SIDE-SCROLLER", "game", "https://sparks-electrician.netlify.app/",                "sparks.jpg"),
-    ("11", "11", "SCAVENGE RABBIT",  "SCAVENGER HUNTS",           "game", "https://scavenge-rabbit.netlify.app/",                   "scavenge.jpg"),
     ("12", "12", "BENNY'S BLACKBERRIES", "A STORY ABOUT SHARING", "game", "https://bennys-blackberries.netlify.app/",               "bennys.jpg"),
     ("13", "13", "LUKE'S ROAD TRIP", "DRIVING GAME",              "game", "https://lukes-road-trip-full-project.netlify.app/",      "lukes.jpg"),
     # hosted in this repo under aegis/ rather than on netlify

@@ -25,6 +25,13 @@ thumbnail), dropping it in with the others of its kind:
     python3 add-project.py "AEGIS" "ORBITAL DEFENSE" game \
         "https://briananthonysonnier.com/aegis/" aegis.jpg
 
+`remove-project.py` takes a card off by title, along with its thumbnail:
+
+    python3 remove-project.py "SCAVENGE RABBIT"
+
+Also delete the project's line from `PROJECTS` in `build-southbaw.py`, or a rebuild
+brings it back.
+
 `patch-southbaw.py` applies the fixes that came after that export — responsive layout,
 working search, real menu links, and the `<title>`/favicon/og tags the bundler's runtime
 would otherwise drop. It only needs `index.html`, so it runs anywhere, and it refuses to
