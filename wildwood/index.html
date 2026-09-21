@@ -1,0 +1,3822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>WILDWOOD // The Long Dark Night</title>
+<meta name="description" content="Wildwood: The Long Dark Night. A first-person survival game in the browser. Build fire and shelter, forage, and last the night.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b1410'/%3E%3Cpath d='M32 10 L50 44 H14 Z' fill='%232f6b3a'/%3E%3Cpath d='M32 24 L46 52 H18 Z' fill='%233f8a4b'/%3E%3Crect x='29' y='50' width='6' height='6' fill='%235a3b22'/%3E%3C/svg%3E">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#020c18;
+    --cyan:#00d4ff;
+    --gold:#e8c250;
+    --red:#ff5566;
+    --warm:#ff9a44;
+    --panel-bg: rgba(2,10,16,0.78);
+  }
+  html,body{
+    margin:0; padding:0; height:100%; overflow:hidden;
+    background:#000; color:#dff6ff;
+    font-family:'Space Mono', monospace, monospace;
+    -webkit-user-select:none; user-select:none;
+  }
+  canvas{ display:block; touch-action:none; }
+  #hudLayer{ position:fixed; inset:0; pointer-events:none; z-index:10; }
+  .panel{
+    box-sizing:border-box;
+    background:var(--panel-bg);
+    border:1px solid rgba(0,212,255,0.5);
+    clip-path: polygon(9px 0,100% 0,100% calc(100% - 9px),calc(100% - 9px) 100%,0 100%,0 9px);
+    padding:9px 12px;
+    box-shadow: 0 0 16px rgba(0,212,255,0.07);
+  }
+  .titleFont{ font-family:'Orbitron', sans-serif; letter-spacing:0.06em; }
+
+  #statsPanel{ position:absolute; top:12px; left:12px; width:188px; pointer-events:none; }
+  .barLabel{ font-size:9px; letter-spacing:0.1em; opacity:0.85; display:flex; justify-content:space-between; margin-bottom:2px;}
+  .barTrack{ height:7px; width:100%; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); margin-bottom:6px; overflow:hidden;}
+  .barFill{ height:100%; width:100%; transition:width 0.25s linear; }
+  #hungerFill{ background:linear-gradient(90deg,#c98a2e,var(--gold)); }
+  #thirstFill{ background:linear-gradient(90deg,#2b7fa8,#5fd0f7); }
+  #warmthFill{ background:linear-gradient(90deg,#a83a2b,var(--warm)); }
+  #wetnessFill{ background:linear-gradient(90deg,#315b7d,#8fd6ff); }
+  #healthFill{ background:linear-gradient(90deg,var(--red),#ff9aa8); }
+
+  #invPanel{
+    position:absolute; top:12px; right:12px; text-align:right; pointer-events:none;
+    font-family:'Orbitron', sans-serif; font-size:9.5px; letter-spacing:0.06em; line-height:1.75;
+    min-width:150px;
+  }
+  #invPanel .row{ display:flex; justify-content:space-between; gap:10px; }
+  #invPanel .lbl{ opacity:0.65; }
+  #clock{ margin-top:4px; color:var(--cyan); font-size:11px; }
+  #rainTag{ color:#8fd6ff; margin-top:2px; font-size:9px; letter-spacing:0.14em; visibility:hidden;}
+
+  #minimapPanel{
+    position:absolute; right:14px; bottom:54px; width:156px; height:156px;
+    padding:5px; pointer-events:none;
+  }
+  #minimapCanvas{ width:100%; height:100%; image-rendering:pixelated; }
+
+  #objectivePanel{
+    position:absolute; top:12px; left:50%; transform:translateX(-50%);
+    width:min(340px,calc(100vw - 440px)); min-width:280px;
+    text-align:center; pointer-events:none;
+  }
+  #objectiveKicker{ color:var(--gold); font-size:8px; letter-spacing:0.18em; text-transform:uppercase; }
+  #objectiveTitle{ margin:4px 0 3px; font-family:'Orbitron',sans-serif; font-size:11px; letter-spacing:0.05em; }
+  #objectiveHint{ color:rgba(223,246,255,0.68); font-size:8.5px; line-height:1.45; }
+  #objectiveTrack{ display:flex; justify-content:center; gap:6px; margin-top:7px; }
+  #safeZoneTag, #shelterZoneTag{
+    display:none; margin-top:7px; color:#9fe6b0; font-family:'Orbitron',sans-serif;
+    font-size:8px; letter-spacing:0.1em; text-shadow:0 0 8px rgba(159,230,176,0.45);
+  }
+  #shelterZoneTag{ color:#9fdcff; text-shadow:0 0 8px rgba(159,220,255,0.45); }
+  .objectiveDot{ width:16px; height:3px; background:rgba(255,255,255,0.12); }
+  .objectiveDot.done{ background:var(--gold); box-shadow:0 0 6px rgba(232,194,80,0.45); }
+  .objectiveDot.current{ background:var(--cyan); box-shadow:0 0 6px rgba(0,212,255,0.45); }
+
+  #toast{
+    position:absolute; bottom:30%; left:50%; transform:translateX(-50%);
+    font-family:'Orbitron', sans-serif; font-size:12.5px; color:var(--gold);
+    text-shadow:0 0 8px rgba(232,194,80,0.6);
+    opacity:0; transition:opacity 0.4s, transform 0.4s;
+    pointer-events:none; white-space:nowrap; text-align:center;
+  }
+  #toast.show{ opacity:1; transform:translateX(-50%) translateY(-8px); }
+
+  #actionPanel{
+    position:fixed; left:50%; bottom:112px; transform:translateX(-50%);
+    display:flex; flex-direction:column; gap:6px; align-items:center;
+    z-index:22; pointer-events:none;
+  }
+  .actBtn{
+    font-family:'Orbitron', sans-serif; font-size:11px; letter-spacing:0.05em;
+    background:rgba(2,14,22,0.86); color:var(--cyan); border:1px solid rgba(0,212,255,0.6);
+    padding:8px 16px; cursor:pointer; pointer-events:auto; white-space:nowrap;
+    clip-path: polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);
+  }
+  .actBtn:active{ background:rgba(0,212,255,0.22); }
+  .actBtn.risky{ color:var(--red); border-color:rgba(255,85,102,0.6); }
+  .actBtn.hidden{ display:none; }
+
+  #busyBar{
+    position:fixed; left:50%; bottom:118px; transform:translateX(-50%);
+    z-index:22; width:220px; text-align:center; display:none;
+  }
+  #busyBar .label{ font-family:'Orbitron', sans-serif; font-size:10px; color:var(--gold); margin-bottom:4px; letter-spacing:0.08em;}
+  #busyBar .track{ height:8px; background:rgba(255,255,255,0.1); border:1px solid rgba(232,194,80,0.5); }
+  #busyBar .fill{ height:100%; width:0%; background:var(--gold); }
+
+  #buildRow{
+    position:fixed; left:50%; bottom:56px; transform:translateX(-50%);
+    display:flex; flex-wrap:wrap; justify-content:center; gap:8px; z-index:21;
+    max-width:calc(100vw - 24px);
+  }
+  .buildBtn{
+    font-family:'Orbitron', sans-serif; font-size:10px; letter-spacing:0.04em;
+    background:rgba(2,10,16,0.7); color:#9fe6b0; border:1px solid rgba(159,230,176,0.5);
+    padding:7px 12px; cursor:pointer; pointer-events:auto; white-space:nowrap;
+    clip-path: polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
+  }
+  .buildBtn:disabled{ opacity:0.35; color:#889; border-color:rgba(255,255,255,0.2); cursor:default; }
+
+  #inventoryToggle, #hintsToggle, #attacksToggle{
+    position:fixed; right:14px; bottom:14px; z-index:24; pointer-events:auto;
+    font-family:'Orbitron',sans-serif; font-size:9px; letter-spacing:0.06em;
+    color:var(--cyan); background:rgba(2,14,22,0.9); border:1px solid rgba(0,212,255,0.55);
+    padding:8px 12px; cursor:pointer;
+  }
+  #hintsToggle{ right:128px; }
+  #attacksToggle{ right:242px; }
+  #hintsToggle.off, #attacksToggle.off{ color:#8b98a0; border-color:rgba(139,152,160,0.45); }
+  #inventoryToggle{ z-index:27; }
+  #inventoryBackdrop{
+    position:fixed; inset:0; z-index:25; display:none;
+    background:rgba(0,3,5,0.12); pointer-events:auto;
+  }
+  #inventoryBackdrop.open{ display:block; }
+  #inventoryDrawer{
+    position:fixed; right:14px; top:50%; transform:translateY(-50%); z-index:26;
+    width:238px; box-sizing:border-box; display:none; pointer-events:auto;
+  }
+  #inventoryDrawer.open{ display:block; }
+  #inventoryDrawer h2{
+    margin:0 0 10px; font-family:'Orbitron',sans-serif; font-size:12px;
+    color:var(--cyan); letter-spacing:0.08em;
+  }
+  .inventoryItem{
+    display:grid; grid-template-columns:1fr auto auto; align-items:center; gap:8px;
+    padding:7px 0; border-top:1px solid rgba(0,212,255,0.14); font-size:9px;
+  }
+  .inventoryItem button{
+    font-family:'Orbitron',sans-serif; font-size:7.5px; color:var(--gold);
+    background:rgba(232,194,80,0.08); border:1px solid rgba(232,194,80,0.45);
+    padding:5px 7px; cursor:pointer;
+  }
+  .inventoryItem button:disabled{ opacity:0.3; cursor:default; }
+  #inventoryHelp{ margin-top:9px; color:rgba(223,246,255,0.55); font-size:8px; line-height:1.45; }
+
+  #crosshair{
+    position:absolute; top:50%; left:50%; width:6px; height:6px; margin:-3px;
+    border-radius:50%; background:rgba(0,212,255,0.85);
+    box-shadow:0 0 6px rgba(0,212,255,0.8); display:none;
+  }
+  #lookPrompt{
+    position:absolute; top:calc(50% + 16px); left:50%; transform:translateX(-50%);
+    font-family:'Orbitron',sans-serif; font-size:8px; letter-spacing:0.08em;
+    color:rgba(223,246,255,0.72); text-shadow:0 0 8px rgba(0,212,255,0.35);
+    pointer-events:none; white-space:nowrap; display:none;
+  }
+
+  #startOverlay, #gameOverOverlay{
+    position:fixed; inset:0; z-index:30;
+    background:radial-gradient(ellipse at center, rgba(5,14,20,0.96), rgba(0,3,5,0.99));
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:24px; box-sizing:border-box;
+  }
+  #startOverlay h1, #gameOverOverlay h1{
+    font-family:'Orbitron', sans-serif; font-weight:900; font-size:clamp(24px,6.4vw,40px);
+    color:var(--cyan); letter-spacing:0.1em; margin:0 0 6px 0;
+    text-shadow:0 0 22px rgba(0,212,255,0.4);
+  }
+  #startOverlay p, #gameOverOverlay p{ font-size:12.5px; line-height:1.65; max-width:430px; opacity:0.85; margin:5px 0;}
+  #startOverlay .sub{ color:var(--gold); font-size:10.5px; letter-spacing:0.1em; margin-bottom:18px;}
+  .bigBtn{
+    font-family:'Orbitron', sans-serif; font-weight:700; letter-spacing:0.1em;
+    background:transparent; color:var(--cyan); border:1px solid var(--cyan);
+    padding:13px 30px; font-size:13px; cursor:pointer; margin-top:14px;
+    clip-path: polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);
+  }
+  .optionBtn{
+    font-family:'Orbitron',sans-serif; font-size:10px; letter-spacing:0.08em;
+    color:var(--gold); background:rgba(232,194,80,0.06); border:1px solid rgba(232,194,80,0.5);
+    padding:9px 16px; cursor:pointer; margin-top:10px;
+  }
+  .optionBtn.off{ color:#8b98a0; border-color:rgba(139,152,160,0.45); background:rgba(139,152,160,0.04); }
+  .startOptions{ display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
+  .bigBtn:active{ background:rgba(0,212,255,0.18); }
+  #gameOverOverlay{ display:none; }
+  #gameOverOverlay h1{ color:var(--red); text-shadow:0 0 22px rgba(255,85,102,0.5); }
+  #gameOverOverlay .bigBtn{ color:var(--red); border-color:var(--red); }
+  #gameOverOverlay .bigBtn:active{ background:rgba(255,85,102,0.18); }
+  #gameOverOverlay.success h1{ color:var(--gold); text-shadow:0 0 22px rgba(232,194,80,0.5); }
+  #gameOverOverlay.success .bigBtn{ color:var(--gold); border-color:var(--gold); }
+
+  #sleepOverlay{
+    position:fixed; inset:0; z-index:29; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; pointer-events:none;
+    background:rgba(0,4,10,0.96); opacity:0; visibility:hidden;
+    transition:opacity 0.7s ease, visibility 0s linear 0.7s;
+  }
+  #sleepOverlay.active{ opacity:0.93; visibility:visible; transition:opacity 0.7s ease; }
+  #sleepOverlay .sleepTitle{ font-family:'Orbitron',sans-serif; color:var(--gold); font-size:18px; letter-spacing:0.18em; }
+  #sleepOverlay .sleepTime{ margin-top:10px; color:rgba(223,246,255,0.72); font-size:11px; letter-spacing:0.1em; }
+
+  #joystickZone{
+    position:fixed; left:0; bottom:0; width:46vw; height:46vh; max-width:270px; max-height:270px;
+    z-index:20; touch-action:none; display:none;
+  }
+  #joyBase{ position:absolute; left:28px; bottom:28px; width:104px; height:104px; border-radius:50%; border:1px solid rgba(0,212,255,0.4); background:rgba(0,212,255,0.06); }
+  #joyKnob{ position:absolute; left:28px; bottom:28px; width:46px; height:46px; border-radius:50%; background:rgba(0,212,255,0.35); border:1px solid rgba(0,212,255,0.7); transform:translate(29px,-29px); }
+  #lookZone{ position:fixed; right:0; top:0; width:100vw; height:100vh; z-index:15; touch-action:none; display:none; }
+
+  .scanline{
+    position:fixed; inset:0; pointer-events:none; z-index:12; mix-blend-mode:overlay; opacity:0.3;
+    background:repeating-linear-gradient(to bottom, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 1px, transparent 2px, transparent 3px);
+  }
+  @media (max-width:760px){
+    #statsPanel{ top:6px; left:6px; width:calc(50% - 9px); padding:7px 8px; }
+    #invPanel{ top:6px; right:6px; width:calc(50% - 9px); min-width:0; padding:7px 8px; font-size:7.5px; line-height:1.55; }
+    .barLabel{ font-size:7.5px; }
+    .barTrack{ height:5px; margin-bottom:4px; }
+    #objectivePanel{ top:202px; width:calc(100vw - 24px); min-width:0; }
+    #buildRow{ bottom:48px; width:calc(100vw - 24px); justify-content:center; }
+    .buildBtn{ padding:7px 8px; font-size:8px; }
+    #inventoryToggle, #hintsToggle, #attacksToggle{ bottom:8px; padding:7px 8px; font-size:7.5px; }
+    #inventoryToggle{ right:8px; }
+    #hintsToggle{ left:50%; right:auto; transform:translateX(-50%); }
+    #attacksToggle{ left:8px; right:auto; }
+    #inventoryDrawer{ right:8px; width:calc(100vw - 16px); max-width:300px; }
+    #minimapPanel{ right:8px; bottom:118px; width:92px; height:92px; padding:3px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="startOverlay">
+  <h1>WILDWOOD</h1>
+  <div class="sub">— survival loop prototype —</div>
+  <p>Dusk is closing over the forest. Establish a working camp before the cold
+  and rain take hold.</p>
+  <p>Gather stones for a fire pit, find wood and dry kindling, boil drinking
+  water, cook something to eat, and raise a lean-to. Once camp is secure, hold out until dawn.</p>
+  <p id="controlHint"></p>
+  <div class="startOptions">
+    <button class="optionBtn" id="startHintsBtn" aria-pressed="true">HINTS: ON</button>
+    <button class="optionBtn" id="startAttacksBtn" aria-pressed="true">ANIMAL ATTACKS: ON</button>
+  </div>
+  <button class="bigBtn" id="startBtn">ENTER THE WOODS</button>
+</div>
+
+<div id="gameOverOverlay">
+  <h1 id="deathTitle">YOU DID NOT SURVIVE THE NIGHT</h1>
+  <p id="survivalSummary"></p>
+  <button class="bigBtn" id="restartBtn">TRY AGAIN</button>
+</div>
+
+<div id="sleepOverlay">
+  <div class="sleepTitle">SLEEPING</div>
+  <div class="sleepTime" id="sleepTime">DAY 1 · 8:00 PM</div>
+</div>
+
+<div id="hudLayer">
+  <div id="statsPanel" class="panel">
+    <div class="barLabel"><span>HUNGER</span><span id="hungerNum">100</span></div>
+    <div class="barTrack"><div class="barFill" id="hungerFill"></div></div>
+    <div class="barLabel"><span>THIRST</span><span id="thirstNum">100</span></div>
+    <div class="barTrack"><div class="barFill" id="thirstFill"></div></div>
+    <div class="barLabel"><span>WARMTH</span><span id="warmthNum">100</span></div>
+    <div class="barTrack"><div class="barFill" id="warmthFill"></div></div>
+    <div class="barLabel"><span>WETNESS</span><span id="wetnessNum">0</span></div>
+    <div class="barTrack"><div class="barFill" id="wetnessFill"></div></div>
+    <div class="barLabel"><span>VITALITY</span><span id="healthNum">100</span></div>
+    <div class="barTrack"><div class="barFill" id="healthFill"></div></div>
+  </div>
+
+  <div id="invPanel" class="panel">
+    <div class="row"><span class="lbl">WOOD</span><span id="invWood">0</span></div>
+    <div class="row"><span class="lbl">STICKS</span><span id="invSticks">0</span></div>
+    <div class="row"><span class="lbl">KINDLING</span><span id="invKindling">0/12</span></div>
+    <div class="row"><span class="lbl">DRY LEAVES</span><span id="invLeaves">0/16</span></div>
+    <div class="row"><span class="lbl">PEBBLES</span><span id="invPebbles">0</span></div>
+    <div class="row"><span class="lbl">BERRIES</span><span id="invBerries">0/10</span></div>
+    <div class="row"><span class="lbl">TIN POT</span><span id="invPot">EMPTY</span></div>
+    <div class="row"><span class="lbl">SLINGSHOT</span><span id="invSlingshot">—</span></div>
+    <div class="row"><span class="lbl">FLASHLIGHT</span><span id="invFlashlight">ON</span></div>
+    <div class="row"><span class="lbl">RAW WATER</span><span id="invRawWater">0/3</span></div>
+    <div class="row"><span class="lbl">CLEAN WATER</span><span id="invCleanWater">0/3</span></div>
+    <div class="row"><span class="lbl">MUSHROOM</span><span id="invMushRaw">0</span></div>
+    <div class="row"><span class="lbl">MUSHROOM (cooked)</span><span id="invMushCooked">0</span></div>
+    <div class="row"><span class="lbl">HEARTY STEW</span><span id="invStew">0</span></div>
+    <div id="clock">DAY 1 · NIGHT</div>
+    <div id="rainTag">— RAINFALL —</div>
+  </div>
+
+  <div id="objectivePanel" class="panel">
+    <div id="objectiveKicker">Night plan · step 1 of 6</div>
+    <div id="objectiveTitle">Gather firewood</div>
+    <div id="objectiveHint">Find a nearby tree and chop it with E.</div>
+    <div id="objectiveTrack" aria-hidden="true"></div>
+    <div id="safeZoneTag">FIRELIGHT SAFE ZONE</div>
+    <div id="shelterZoneTag">SHELTERED FROM THE ELEMENTS</div>
+  </div>
+
+  <div id="minimapPanel" class="panel" aria-label="Local surroundings map">
+    <canvas id="minimapCanvas" width="180" height="180"></canvas>
+  </div>
+
+  <div id="toast"></div>
+</div>
+
+<div id="actionPanel"></div>
+<div id="busyBar"><div class="label" id="busyLabel">Working...</div><div class="track"><div class="fill" id="busyFill"></div></div></div>
+<div id="buildRow">
+  <button class="buildBtn" id="buildFireBtn">BUILD FIRE PIT (8 pebbles)</button>
+  <button class="buildBtn" id="buildShelterBtn">BUILD SHELTER (6 wood)</button>
+  <button class="buildBtn" id="craftSlingshotBtn">CRAFT SLINGSHOT (3 sticks)</button>
+</div>
+
+<button id="inventoryToggle">INVENTORY [I]</button>
+<button id="hintsToggle" aria-pressed="true">HINTS ON [H]</button>
+<button id="attacksToggle" aria-pressed="true">ATTACKS ON [J]</button>
+<div id="inventoryBackdrop" aria-hidden="true"></div>
+<div id="inventoryDrawer" class="panel" aria-hidden="true">
+  <h2>PACK INVENTORY</h2>
+  <div class="inventoryItem"><span>Berries</span><span id="drawerBerries">0/10</span><button id="eatBerryBtn">EAT</button></div>
+  <div class="inventoryItem"><span>Cooked mushroom</span><span id="drawerCookedMush">0</span><button id="eatCookedBtn">EAT</button></div>
+  <div class="inventoryItem"><span>Hearty forest stew</span><span id="drawerStew">0</span><button id="eatStewBtn">EAT</button></div>
+  <div class="inventoryItem"><span>Clean water</span><span id="drawerCleanWater">0/3</span><button id="drinkCleanBtn">DRINK</button></div>
+  <div class="inventoryItem"><span>Tin pot</span><span id="drawerPot">EMPTY</span><button id="drinkPotBtn">DRINK</button></div>
+  <div class="inventoryItem"><span>Raw mushroom</span><span id="drawerRawMush">0</span><button id="eatRawBtn">RISK</button></div>
+  <div class="inventoryItem"><span>Raw water</span><span id="drawerRawWater">0/3</span><button id="drinkRawBtn">RISK</button></div>
+  <div class="inventoryItem"><span>Wood / sticks</span><span id="drawerMaterials">0 / 0</span><span></span></div>
+  <div class="inventoryItem"><span>Dry kindling</span><span id="drawerKindling">0/12</span><span></span></div>
+  <div class="inventoryItem"><span>Dry leaves</span><span id="drawerLeaves">0/16</span><span></span></div>
+  <div class="inventoryItem"><span>Pebbles</span><span id="drawerPebbles">0</span><span></span></div>
+  <div id="inventoryHelp">Press I to close. Fire pits need 8 pebbles, 4 wood, and dry kindling.</div>
+</div>
+
+<div id="crosshair"></div>
+<div id="lookPrompt">TWO-FINGER SCROLL OR DRAG TO LOOK</div>
+<div id="joystickZone"><div id="joyBase"></div><div id="joyKnob"></div></div>
+<div id="lookZone"></div>
+<div class="scanline"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  /* ===============================================================
+     CONSTANTS
+  =============================================================== */
+  var WORLD_HALF = 118;
+  var EYE_HEIGHT = 1.65;
+  var WALK_SPEED = 5.6;
+  var RUN_SPEED = 9.8;
+  var KEYBOARD_TURN_SPEED = 1.9;
+  var MOUSE_SENS = 0.0022;
+  var TRACKPAD_LOOK_SENS = 0.0026;
+  var TOUCH_LOOK_SENS = 0.0052;
+  var PIXEL_SCALE = 0.68;
+  var POND = { x: 34, z: -30, r: 10 };
+
+  var FIRE_COST = 4, FIRE_PIT_PEBBLE_COST = 8, FIRE_KINDLING_COST = 1;
+  var SHELTER_COST = 6, SLINGSHOT_STICK_COST = 3, LEAF_BED_COST = 8;
+  var SHELTER_INSULATION_STICKS = 4, SHELTER_INSULATION_LEAVES = 4;
+  var STEW_BERRY_COST = 2;
+  var FIRE_SAFE_RADIUS = 7.4;
+  var RAIN_CATCH_TIME = 5, POT_DRINK_THIRST = 24;
+  var START_WORLD_MINUTES = 20 * 60;
+  var GAME_MINUTES_PER_REAL_SECOND = 4;
+  var SURVIVAL_BALANCE = {
+    hungerDaysToEmpty: 3,
+    thirstDaysToEmpty: 2,
+    dryColdDaysToEmpty: 3,
+    starvationHealthLossDays: 1,
+    dehydrationHealthLossDays: 1,
+    hypothermiaHealthLossHours: 6,
+    fullFireBurnHours: 24
+  };
+  var HUNGER_DAYS_TO_EMPTY = SURVIVAL_BALANCE.hungerDaysToEmpty;
+  var HUNGER_DRAIN_PER_WORLD_MINUTE = 100 / (HUNGER_DAYS_TO_EMPTY * 1440);
+  var THIRST_DAYS_TO_EMPTY = SURVIVAL_BALANCE.thirstDaysToEmpty;
+  var THIRST_DRAIN_PER_WORLD_MINUTE = 100 / (THIRST_DAYS_TO_EMPTY * 1440);
+  var DRY_COLD_DAYS_TO_EMPTY = SURVIVAL_BALANCE.dryColdDaysToEmpty;
+  var WARMTH_DRAIN_PER_WORLD_MINUTE = 100 / (DRY_COLD_DAYS_TO_EMPTY * 1440);
+  var WARMTH_RECOVERY_PER_WORLD_MINUTE = 100 / 90;
+  var STARVATION_HEALTH_LOSS_PER_WORLD_MINUTE = 100 / (SURVIVAL_BALANCE.starvationHealthLossDays * 1440);
+  var DEHYDRATION_HEALTH_LOSS_PER_WORLD_MINUTE = 100 / (SURVIVAL_BALANCE.dehydrationHealthLossDays * 1440);
+  var HYPOTHERMIA_HEALTH_LOSS_PER_WORLD_MINUTE = 100 / (SURVIVAL_BALANCE.hypothermiaHealthLossHours * 60);
+  var FIRE_FUEL_PER_WOOD = 22;
+  var FIRE_FUEL_DRAIN_PER_WORLD_MINUTE = 100 / (SURVIVAL_BALANCE.fullFireBurnHours * 60);
+  var RAIN_FIRE_DRAIN_MULTIPLIER = 1.5;
+  var RAIN_WETNESS_RATE = 4.8, FIRE_DRYING_RATE = 7.5, EXPOSED_FIRE_DRYING_RATE = 2.2;
+  var LOW_ENERGY_HUNGER = 30, EXHAUSTED_HUNGER = 10;
+  var DAWN_MINUTE = 6 * 60 + 30;
+  var DUSK_MINUTE = 19 * 60;
+  var SLEEP_NIGHT_SECONDS = 7, SLEEP_REST_SECONDS = 5;
+  var DEBUG_DEMO = new URLSearchParams(window.location.search).has('debug');
+
+  var TREE_RANGE = 3.4, STUMP_RANGE = 2.5, DEADFALL_RANGE = 3.2, BERRY_RANGE = 3.2, MUSH_RANGE = 3.0, LEAF_RANGE = 2.8, PEBBLE_RANGE = 2.6, POND_RANGE = POND.r + 3.6, FIRE_RANGE = 5.6;
+  var MAX_BERRIES = 10, MAX_LEAVES = 16, MAX_KINDLING = 12;
+  var CHOP_STRIKE_INTERVAL = 0.65, STUMP_REST_TIME = 4, STUMP_SEATED_EYE_HEIGHT = 1.08;
+  var BOIL_TIME = 3.2, COOK_TIME = 4.2, STEW_TIME = 6;
+  var MAX_FIRES = 4, MAX_SHELTERS = 3;
+  var SHELTER_HALF_WIDTH = 1.52, SHELTER_REAR_DEPTH = 1.18, SHELTER_FRONT_DEPTH = 1.08;
+
+  var coarsePointer = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  var isMobile = (navigator.maxTouchPoints > 0 && coarsePointer) || (('ontouchstart' in window) && window.innerWidth <= 900);
+  document.getElementById('controlHint').textContent = isMobile
+    ? 'Left thumb: move. Drag right side: look. Tap the panel buttons to act.'
+    : 'WASD to move · two-finger scroll to look · arrows turn · R shoots · L flashlight · I inventory · H hints · J animal attacks.';
+
+  /* ===============================================================
+     NOISE + TERRAIN HEIGHT (gentle forest floor + carved pond basin)
+  =============================================================== */
+  function hash2(x, y) { var n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123; return n - Math.floor(n); }
+  function noise2D(x, y) {
+    var xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+    var u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+    var a = hash2(xi, yi), b = hash2(xi + 1, yi), c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1);
+    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+  }
+  function fbm(x, y, oct) {
+    var total = 0, amp = 0.5, freq = 1, maxVal = 0;
+    for (var i = 0; i < oct; i++) { total += noise2D(x * freq, y * freq) * amp; maxVal += amp; amp *= 0.5; freq *= 2; }
+    return total / maxVal;
+  }
+  function smoothstep(a, b, x) { var t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
+  function getTerrainHeight(x, z) {
+    var h = fbm(x * 0.02, z * 0.02, 4) * 6.5 - 1.2;
+    var dx = x - POND.x, dz = z - POND.z;
+    var pd = Math.sqrt(dx * dx + dz * dz);
+    var pondFalloff = 1 - smoothstep(0, POND.r * 1.15, pd);
+    h -= pondFalloff * 6.5;
+    var edge = Math.sqrt(x * x + z * z) / WORLD_HALF;
+    h -= Math.max(0, edge - 0.82) * 14;
+    return h;
+  }
+  var WATER_LEVEL = -3.4;
+
+  /* ===============================================================
+     RENDERER / SCENE / CAMERA / LIGHTS (fixed night)
+  =============================================================== */
+  var renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.08;
+  document.body.appendChild(renderer.domElement);
+
+  var scene = new THREE.Scene();
+  var NIGHT_COLOR = new THREE.Color(0x0a1420);
+  var RAIN_COLOR = new THREE.Color(0x04070b);
+  var DAY_COLOR = new THREE.Color(0x7295a6);
+  var DAWN_COLOR = new THREE.Color(0xc97852);
+  var RAIN_DAY_COLOR = new THREE.Color(0x34454d);
+  var SUN_COLOR = new THREE.Color(0xffdfad);
+  var skyTargetColor = new THREE.Color();
+  var daylightLightColor = new THREE.Color();
+  scene.background = NIGHT_COLOR.clone();
+  scene.fog = new THREE.Fog(NIGHT_COLOR.getHex(), 10, 92);
+
+  var camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 220);
+  camera.rotation.order = 'YXZ';
+
+  var flashlightOn = true;
+  var flashlight = new THREE.SpotLight(0xfff1c7, 2.8, 34, 0.4, 0.58, 1.35);
+  var flashlightTarget = new THREE.Object3D();
+  var flashlightFill = new THREE.PointLight(0xffe6b0, 0.18, 5, 2);
+  scene.add(flashlight, flashlightTarget, flashlightFill);
+  flashlight.target = flashlightTarget;
+  var flashlightDirection = new THREE.Vector3();
+
+  var hemiLight = new THREE.HemisphereLight(0x24314a, 0x0a0f0a, 0.38);
+  scene.add(hemiLight);
+  var moonLight = new THREE.DirectionalLight(0xaac8ff, 0.34);
+  moonLight.position.set(50, 130, 30);
+  scene.add(moonLight);
+  var ambientFill = new THREE.AmbientLight(0x14202c, 0.16);
+  scene.add(ambientFill);
+
+  /* ===============================================================
+     GLOW TEXTURE (shared by fireflies / embers / eye glints)
+  =============================================================== */
+  function makeGlowTexture() {
+    var size = 64, cv = document.createElement('canvas');
+    cv.width = size; cv.height = size;
+    var ctx = cv.getContext('2d');
+    var grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.4, 'rgba(255,255,255,0.45)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+    return new THREE.CanvasTexture(cv);
+  }
+  var glowTex = makeGlowTexture();
+
+  /* ===============================================================
+     TERRAIN MESH
+  =============================================================== */
+  var TERRAIN_SEG = 100;
+  var terrainGeo = new THREE.PlaneGeometry(WORLD_HALF * 2, WORLD_HALF * 2, TERRAIN_SEG, TERRAIN_SEG);
+  (function buildTerrain() {
+    var pos = terrainGeo.attributes.position;
+    var colors = [], col = new THREE.Color();
+    for (var i = 0; i < pos.count; i++) {
+      var lx = pos.getX(i), ly = pos.getY(i);
+      var wx = lx, wz = -ly;
+      var h = getTerrainHeight(wx, wz);
+      pos.setZ(i, h);
+      if (h < WATER_LEVEL + 1.0) {
+        col.setRGB(0.10, 0.10, 0.09);
+      } else if (h < 3.5) {
+        var t = (h - (WATER_LEVEL + 1.0)) / 4.5;
+        col.setRGB(0.045 + t * 0.03, 0.085 + t * 0.05, 0.045 + t * 0.02);
+        var v = noise2D(wx * 0.1, wz * 0.1) * 0.03;
+        col.r += v; col.g += v * 0.7; col.b += v * 0.3;
+      } else {
+        col.setRGB(0.09, 0.095, 0.085);
+      }
+      colors.push(col.r, col.g, col.b);
+    }
+    terrainGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    terrainGeo.computeVertexNormals();
+  })();
+  var terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  var terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
+  terrainMesh.rotation.x = -Math.PI / 2;
+  scene.add(terrainMesh);
+
+  var pondGeo = new THREE.CircleGeometry(POND.r * 0.9, 24);
+  var pondMat = new THREE.MeshLambertMaterial({ color: 0x264a5a, transparent: true, opacity: 0.82 });
+  var pondMesh = new THREE.Mesh(pondGeo, pondMat);
+  pondMesh.rotation.x = -Math.PI / 2;
+  pondMesh.position.set(POND.x, WATER_LEVEL, POND.z);
+  scene.add(pondMesh);
+
+  var mistGeo = new THREE.PlaneGeometry(160, 160);
+  var mistMat = new THREE.MeshBasicMaterial({ color: 0x8fa3b0, transparent: true, opacity: 0.05, depthWrite: false });
+  var mistMesh = new THREE.Mesh(mistGeo, mistMat);
+  mistMesh.rotation.x = -Math.PI / 2;
+  mistMesh.position.y = 0.35;
+  scene.add(mistMesh);
+
+  /* ===============================================================
+     BACKDROP FOREST (dense, decorative, instanced)
+  =============================================================== */
+  function farEnoughFromPond(x, z, margin) {
+    var dx = x - POND.x, dz = z - POND.z;
+    return Math.sqrt(dx * dx + dz * dz) > POND.r + margin;
+  }
+  var trunkGeo = new THREE.CylinderGeometry(0.13, 0.2, 2.0, 5);
+  var trunkMat = new THREE.MeshLambertMaterial({ color: 0x241a12, flatShading: true });
+  var foliageGeoA = new THREE.ConeGeometry(1.05, 3.0, 6);
+  var foliageMatA = new THREE.MeshLambertMaterial({ color: 0x0d1f10, flatShading: true });
+  var foliageGeoB = new THREE.ConeGeometry(1.05, 3.0, 6);
+  var foliageMatB = new THREE.MeshLambertMaterial({ color: 0x152a16, flatShading: true });
+  var trees = [];
+
+  function scatterBackdrop() {
+    var spotsA = [], spotsB = [], tries = 0, target = 760;
+    while ((spotsA.length + spotsB.length) < target && tries < 13000) {
+      tries++;
+      var x = (Math.random() * 2 - 1) * WORLD_HALF * 0.93;
+      var z = (Math.random() * 2 - 1) * WORLD_HALF * 0.93;
+      if (!farEnoughFromPond(x, z, 3)) continue;
+      if (Math.sqrt(x * x + z * z) < 8) continue;
+      var h = getTerrainHeight(x, z);
+      if (h > WATER_LEVEL + 1.2) (Math.random() < 0.5 ? spotsA : spotsB).push({ x: x, z: z, h: h });
+    }
+    buildInstancedTrees(spotsA, foliageGeoA, foliageMatA);
+    buildInstancedTrees(spotsB, foliageGeoB, foliageMatB);
+  }
+  function buildInstancedTrees(spots, foliageGeo, foliageMat) {
+    if (!spots.length) return;
+    var trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, spots.length);
+    var foliage = new THREE.InstancedMesh(foliageGeo, foliageMat, spots.length);
+    var foliageTop = new THREE.InstancedMesh(foliageGeo, foliageMat, spots.length);
+    var dummy = new THREE.Object3D();
+    for (var i = 0; i < spots.length; i++) {
+      var s = spots[i];
+      var isTall = Math.random() < 0.27;
+      var scale = isTall ? (1.65 + Math.random() * 0.85) : (0.82 + Math.random() * 0.72);
+      var rotY = Math.random() * Math.PI * 2;
+      dummy.position.set(s.x, s.h + 1.0 * scale, s.z);
+      dummy.rotation.set(0, rotY, 0);
+      dummy.scale.set(scale, scale, scale);
+      dummy.updateMatrix();
+      trunks.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(s.x, s.h + 2.55 * scale, s.z);
+      dummy.updateMatrix();
+      foliage.setMatrixAt(i, dummy.matrix);
+      var crownScale = scale * (isTall ? 0.78 : 0.66);
+      dummy.position.set(s.x, s.h + 3.62 * scale, s.z);
+      dummy.rotation.set(0, rotY + 0.35, 0);
+      dummy.scale.set(crownScale, crownScale, crownScale);
+      dummy.updateMatrix();
+      foliageTop.setMatrixAt(i, dummy.matrix);
+      trees.push({
+        x: s.x, z: s.z, h: s.h, hp: 3, chopped: false,
+        instanced: true, trunks: trunks, foliage: foliage, foliageTop: foliageTop, instanceIndex: i,
+        scale: scale, stump: null, kindlingYield: Math.random() < 0.32 ? 1 : 0
+      });
+    }
+    trunks.instanceMatrix.needsUpdate = true;
+    foliage.instanceMatrix.needsUpdate = true;
+    foliageTop.instanceMatrix.needsUpdate = true;
+    scene.add(trunks, foliage, foliageTop);
+  }
+  scatterBackdrop();
+
+  /* ===============================================================
+     INTERACTIVE (choppable) TREES — individual meshes
+  =============================================================== */
+  (function scatterChoppableTrees() {
+    var tries = 0, target = 60, added = 0;
+    while (added < target && tries < 5000) {
+      tries++;
+      var x = (Math.random() * 2 - 1) * WORLD_HALF * 0.8;
+      var z = (Math.random() * 2 - 1) * WORLD_HALF * 0.8;
+      if (!farEnoughFromPond(x, z, 4)) continue;
+      if (Math.sqrt(x * x + z * z) < 6) continue;
+      var h = getTerrainHeight(x, z);
+      if (h < WATER_LEVEL + 1.4) continue;
+      var scale = 0.9 + Math.random() * 0.5;
+      var group = new THREE.Group();
+      var trunk = new THREE.Mesh(trunkGeo, trunkMat);
+      trunk.position.y = 1.0 * scale;
+      trunk.scale.set(scale, scale, scale);
+      var foliage = new THREE.Mesh(Math.random() < 0.5 ? foliageGeoA : foliageGeoB, Math.random() < 0.5 ? foliageMatA : foliageMatB);
+      foliage.position.y = 2.55 * scale;
+      foliage.scale.set(scale, scale, scale);
+      group.add(trunk, foliage);
+      group.position.set(x, h, z);
+      group.rotation.y = Math.random() * Math.PI * 2;
+      scene.add(group);
+      var stumpGeo = new THREE.CylinderGeometry(0.22 * scale, 0.26 * scale, 0.35 * scale, 6);
+      var stump = new THREE.Mesh(stumpGeo, trunkMat);
+      stump.position.set(x, h + 0.17 * scale, z);
+      stump.visible = false;
+      scene.add(stump);
+      trees.push({ x: x, z: z, h: h, hp: 3, chopped: false, group: group, stump: stump, kindlingYield: Math.random() < 0.32 ? 1 : 0 });
+      added++;
+    }
+  })();
+
+  (function addStarterTree() {
+    var x = 0, z = 2.9, h = getTerrainHeight(x, z), scale = 1.15;
+    var group = new THREE.Group();
+    var trunk = new THREE.Mesh(trunkGeo, trunkMat);
+    trunk.position.y = 1.0 * scale; trunk.scale.set(scale, scale, scale);
+    var foliage = new THREE.Mesh(foliageGeoB, foliageMatB);
+    foliage.position.y = 2.55 * scale; foliage.scale.set(scale, scale, scale);
+    group.add(trunk, foliage); group.position.set(x, h, z); scene.add(group);
+    var stumpGeo = new THREE.CylinderGeometry(0.22 * scale, 0.26 * scale, 0.35 * scale, 6);
+    var stump = new THREE.Mesh(stumpGeo, trunkMat);
+    stump.position.set(x, h + 0.17 * scale, z); stump.visible = false; scene.add(stump);
+    trees.push({ x: x, z: z, h: h, hp: 3, chopped: false, group: group, stump: stump, kindlingYield: 0 });
+  })();
+
+  /* ===============================================================
+     FORAGE SPOTS: berries (auto pickup) + mushrooms (interact)
+  =============================================================== */
+  var forageSpots = [];
+  var bushGeo = new THREE.SphereGeometry(0.5, 6, 5);
+  var bushMat = new THREE.MeshLambertMaterial({ color: 0x16260f, flatShading: true });
+  var berryGeo = new THREE.SphereGeometry(0.09, 5, 4);
+  var berryMat = new THREE.MeshLambertMaterial({ color: 0x9e2233 });
+  var mushCapGeo = new THREE.SphereGeometry(0.16, 6, 5, 0, Math.PI * 2, 0, Math.PI / 2);
+  var mushStemGeo = new THREE.CylinderGeometry(0.045, 0.06, 0.22, 5);
+  var mushCapMat = new THREE.MeshLambertMaterial({ color: 0xb0433a, flatShading: true });
+  var mushStemMat = new THREE.MeshLambertMaterial({ color: 0xd8cfc0, flatShading: true });
+
+  function randomSpot(minR, maxR, minH, maxH) {
+    var tries = 0;
+    while (tries < 250) {
+      tries++;
+      var x = (Math.random() * 2 - 1) * WORLD_HALF * 0.78;
+      var z = (Math.random() * 2 - 1) * WORLD_HALF * 0.78;
+      if (!farEnoughFromPond(x, z, 3)) continue;
+      var d = Math.sqrt(x * x + z * z);
+      if (d < minR || d > maxR) continue;
+      var h = getTerrainHeight(x, z);
+      if (h >= minH && h <= maxH) return { x: x, z: z, h: h };
+    }
+    return { x: 6, z: 6, h: getTerrainHeight(6, 6) };
+  }
+
+  /* ===============================================================
+     DEADFALL: guaranteed dry kindling from fallen trees
+  =============================================================== */
+  var deadfalls = [];
+  var deadfallLogGeo = new THREE.CylinderGeometry(0.18, 0.24, 2.5, 6);
+  var deadfallBranchGeo = new THREE.CylinderGeometry(0.035, 0.065, 1.05, 5);
+  var deadfallMat = new THREE.MeshLambertMaterial({ color: 0x342419, flatShading: true });
+  var deadfallEndMat = new THREE.MeshLambertMaterial({ color: 0x6a4a2c, flatShading: true });
+  var deadfallMossMat = new THREE.MeshLambertMaterial({ color: 0x344327, flatShading: true });
+  function addDeadfall(x, z, kindlingCount) {
+    var h = getTerrainHeight(x, z);
+    var group = new THREE.Group();
+    var log = new THREE.Mesh(deadfallLogGeo, [deadfallMat, deadfallEndMat, deadfallEndMat]);
+    log.rotation.z = Math.PI / 2;
+    log.position.y = 0.24;
+    var branchA = new THREE.Mesh(deadfallBranchGeo, deadfallMat);
+    branchA.position.set(-0.45, 0.34, 0.16);
+    branchA.rotation.set(0.4, 0.25, -1.05);
+    var branchB = new THREE.Mesh(deadfallBranchGeo, deadfallMat);
+    branchB.position.set(0.5, 0.32, -0.12);
+    branchB.rotation.set(-0.35, -0.3, 1.08);
+    var moss = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.045, 0.22), deadfallMossMat);
+    moss.position.set(0, 0.43, 0.01);
+    moss.rotation.y = 0.08;
+    group.add(log, branchA, branchB, moss);
+    group.position.set(x, h, z);
+    group.rotation.y = Math.random() * Math.PI * 2;
+    scene.add(group);
+    deadfalls.push({ x: x, z: z, group: group, kindling: kindlingCount, collected: false });
+  }
+  for (var deadfallIndex = 0; deadfallIndex < 20; deadfallIndex++) {
+    var deadfallSpot = randomSpot(9, WORLD_HALF * 0.72, WATER_LEVEL + 1.2, 8);
+    addDeadfall(deadfallSpot.x, deadfallSpot.z, 2 + Math.floor(Math.random() * 2));
+  }
+  addDeadfall(3.0, 6.2, 2);
+
+  function makeBerryGroup(spot) {
+    var group = new THREE.Group();
+    var bush = new THREE.Mesh(bushGeo, bushMat);
+    bush.scale.set(1, 0.85, 1);
+    group.add(bush);
+    for (var k = 0; k < 4; k++) {
+      var dot = new THREE.Mesh(berryGeo, berryMat);
+      var ang = Math.random() * Math.PI * 2, r = 0.35 + Math.random() * 0.14;
+      dot.position.set(Math.cos(ang) * r, 0.12 + Math.random() * 0.2, Math.sin(ang) * r);
+      group.add(dot);
+    }
+    group.position.set(spot.x, spot.h + 0.46, spot.z);
+    return group;
+  }
+  function makeMushGroup(spot) {
+    var group = new THREE.Group();
+    for (var k = 0; k < 3; k++) {
+      var stem = new THREE.Mesh(mushStemGeo, mushStemMat);
+      var cap = new THREE.Mesh(mushCapGeo, mushCapMat);
+      var ox = (Math.random() - 0.5) * 0.3, oz = (Math.random() - 0.5) * 0.3;
+      stem.position.set(ox, 0.1, oz);
+      cap.position.set(ox, 0.2, oz);
+      group.add(stem, cap);
+    }
+    group.position.set(spot.x, spot.h, spot.z);
+    return group;
+  }
+
+  for (var bi = 0; bi < 15; bi++) {
+    var s = randomSpot(8, WORLD_HALF * 0.75, WATER_LEVEL + 1.4, 8);
+    var g = makeBerryGroup(s);
+    scene.add(g);
+    forageSpots.push({ type: 'berry', group: g, collected: false, respawnAt: 0, x: s.x, z: s.z, yield: 2 + Math.floor(Math.random() * 3) });
+  }
+  for (var mi = 0; mi < 16; mi++) {
+    var s2 = randomSpot(8, WORLD_HALF * 0.75, WATER_LEVEL + 1.2, 7);
+    var g2 = makeMushGroup(s2);
+    scene.add(g2);
+    forageSpots.push({ type: 'mushroom', group: g2, collected: false, respawnAt: 0, x: s2.x, z: s2.z });
+  }
+  (function addStarterMushroom() {
+    var spot = { x: 4, z: 6, h: getTerrainHeight(4, 6) };
+    var group = makeMushGroup(spot);
+    scene.add(group);
+    forageSpots.push({ type: 'mushroom', group: group, collected: false, respawnAt: 0, x: spot.x, z: spot.z });
+  })();
+
+  /* ===============================================================
+     DRY LEAVES: visible forest-floor piles for shelter bedding
+  =============================================================== */
+  var leafSpots = [];
+  var leafGeo = new THREE.DodecahedronGeometry(0.13, 0);
+  var leafMats = [
+    new THREE.MeshLambertMaterial({ color: 0x9a5b25, flatShading: true }),
+    new THREE.MeshLambertMaterial({ color: 0xc08a32, flatShading: true }),
+    new THREE.MeshLambertMaterial({ color: 0x6f682d, flatShading: true }),
+    new THREE.MeshLambertMaterial({ color: 0x70401f, flatShading: true })
+  ];
+  function addLeafPile(x, z, count) {
+    var height = getTerrainHeight(x, z);
+    var group = new THREE.Group();
+    for (var leafIndex = 0; leafIndex < 9; leafIndex++) {
+      var leaf = new THREE.Mesh(leafGeo, leafMats[leafIndex % leafMats.length]);
+      var angle = leafIndex / 9 * Math.PI * 2 + Math.random() * 0.35;
+      var radius = 0.12 + Math.random() * 0.35;
+      leaf.position.set(Math.cos(angle) * radius, 0.035 + Math.random() * 0.045, Math.sin(angle) * radius);
+      leaf.rotation.set(Math.random() * 0.35, Math.random() * Math.PI, Math.random() * 0.35);
+      leaf.scale.set(1.15 + Math.random() * 0.65, 0.2 + Math.random() * 0.1, 0.62 + Math.random() * 0.38);
+      group.add(leaf);
+    }
+    group.position.set(x, height, z);
+    scene.add(group);
+    leafSpots.push({ x: x, z: z, group: group, count: count, collected: false, respawnAt: 0 });
+  }
+  for (var leafPileIndex = 0; leafPileIndex < 24; leafPileIndex++) {
+    var leafSpot = randomSpot(6, WORLD_HALF * 0.72, WATER_LEVEL + 1.2, 8);
+    addLeafPile(leafSpot.x, leafSpot.z, 3 + Math.floor(Math.random() * 3));
+  }
+  addLeafPile(1.8, 7.5, 4);
+  addLeafPile(-1.7, 7.8, 4);
+
+  /* ===============================================================
+     PEBBLE AMMO: small ground piles, common near the pond
+  =============================================================== */
+  var pebbleSpots = [];
+  var pebbleGeo = new THREE.DodecahedronGeometry(0.085, 0);
+  var pebbleMat = new THREE.MeshLambertMaterial({ color: 0x8a8b87, flatShading: true });
+  function addPebblePile(x, z, count) {
+    var h = getTerrainHeight(x, z);
+    var group = new THREE.Group();
+    for (var i = 0; i < count; i++) {
+      var pebble = new THREE.Mesh(pebbleGeo, pebbleMat);
+      pebble.position.set((Math.random() - 0.5) * 0.42, 0.07 + Math.random() * 0.05, (Math.random() - 0.5) * 0.42);
+      pebble.scale.setScalar(0.8 + Math.random() * 0.65);
+      group.add(pebble);
+    }
+    group.position.set(x, h, z);
+    scene.add(group);
+    pebbleSpots.push({ x: x, z: z, group: group, count: count, collected: false });
+  }
+  for (var pi = 0; pi < 26; pi++) {
+    var pebbleAngle = Math.random() * Math.PI * 2;
+    var pebbleRadius = POND.r + 2.5 + Math.random() * 8;
+    addPebblePile(POND.x + Math.cos(pebbleAngle) * pebbleRadius, POND.z + Math.sin(pebbleAngle) * pebbleRadius, 2 + Math.floor(Math.random() * 3));
+  }
+  addPebblePile(-2.2, 5.4, 4);
+  addPebblePile(2.1, 4.9, 4);
+
+  /* ===============================================================
+     FIREFLIES
+  =============================================================== */
+  var FIREFLY_COUNT = 130;
+  var fireflyData = [];
+  var fireflyGeo = new THREE.BufferGeometry();
+  var fireflyPos = new Float32Array(FIREFLY_COUNT * 3);
+  for (var fi = 0; fi < FIREFLY_COUNT; fi++) {
+    var fx = (Math.random() * 2 - 1) * WORLD_HALF * 0.85;
+    var fz = (Math.random() * 2 - 1) * WORLD_HALF * 0.85;
+    var fh = getTerrainHeight(fx, fz);
+    fireflyData.push({ x: fx, z: fz, y: fh + 0.5 + Math.random() * 1.8, phase: Math.random() * 100, speed: 0.5 + Math.random() * 0.6 });
+    fireflyPos[fi * 3] = fx; fireflyPos[fi * 3 + 1] = fh + 1; fireflyPos[fi * 3 + 2] = fz;
+  }
+  fireflyGeo.setAttribute('position', new THREE.BufferAttribute(fireflyPos, 3));
+  var fireflyMat = new THREE.PointsMaterial({ map: glowTex, size: 0.18, color: 0xcfff7a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  var fireflies = new THREE.Points(fireflyGeo, fireflyMat);
+  scene.add(fireflies);
+
+  /* ===============================================================
+     EYE GLINTS (creepy ambience — visual only, no threat)
+  =============================================================== */
+  var glintMat = new THREE.SpriteMaterial({ map: glowTex, color: 0xffb347, transparent: true, opacity: 0, depthWrite: false });
+  var glints = [];
+  for (var gi = 0; gi < 6; gi++) {
+    var group = new THREE.Group();
+    var left = new THREE.Sprite(glintMat.clone());
+    var right = new THREE.Sprite(glintMat.clone());
+    left.scale.set(0.16, 0.16, 1); right.scale.set(0.16, 0.16, 1);
+    left.position.x = -0.11; right.position.x = 0.11;
+    group.add(left, right);
+    group.visible = false;
+    scene.add(group);
+    glints.push({ group: group, left: left, right: right, state: 'idle', timer: 2 + Math.random() * 6, age: 0, duration: 0 });
+  }
+  function updateGlints(delta) {
+    for (var i = 0; i < glints.length; i++) {
+      var gl = glints[i];
+      if (gl.state === 'idle') {
+        gl.timer -= delta;
+        if (gl.timer <= 0) {
+          var ang = Math.random() * Math.PI * 2;
+          var dist = 22 + Math.random() * 20;
+          var gx = camera.position.x + Math.cos(ang) * dist;
+          var gz = camera.position.z + Math.sin(ang) * dist;
+          var gh = getTerrainHeight(gx, gz);
+          gl.group.position.set(gx, gh + 1.0 + Math.random() * 0.6, gz);
+          gl.group.lookAt(camera.position);
+          gl.group.visible = true;
+          gl.state = 'fadein'; gl.age = 0; gl.duration = 1.6 + Math.random() * 3;
+        }
+      } else if (gl.state === 'fadein') {
+        gl.age += delta;
+        var op = Math.min(1, gl.age / 0.8) * 0.85;
+        gl.left.material.opacity = op; gl.right.material.opacity = op;
+        if (gl.age >= 0.8) gl.state = 'hold';
+      } else if (gl.state === 'hold') {
+        gl.age += delta;
+        if (gl.age >= 0.8 + gl.duration) gl.state = 'fadeout';
+      } else if (gl.state === 'fadeout') {
+        gl.age += delta;
+        var t = gl.age - (0.8 + gl.duration);
+        var op2 = Math.max(0, 0.85 - t / 0.9);
+        gl.left.material.opacity = op2; gl.right.material.opacity = op2;
+        if (op2 <= 0) {
+          gl.group.visible = false; gl.state = 'idle'; gl.timer = 6 + Math.random() * 16;
+        }
+      }
+    }
+  }
+
+  /* ===============================================================
+     RAIN
+  =============================================================== */
+  var RAIN_COUNT = 260;
+  var rainGeo = new THREE.BufferGeometry();
+  var rainPos = new Float32Array(RAIN_COUNT * 2 * 3);
+  var rainVel = [];
+  for (var ri = 0; ri < RAIN_COUNT; ri++) {
+    var rx = (Math.random() * 2 - 1) * 24, ry = Math.random() * 18, rz = (Math.random() * 2 - 1) * 24;
+    rainPos[ri * 6] = rx; rainPos[ri * 6 + 1] = ry; rainPos[ri * 6 + 2] = rz;
+    rainPos[ri * 6 + 3] = rx; rainPos[ri * 6 + 4] = ry - 0.4; rainPos[ri * 6 + 5] = rz;
+    rainVel.push(9 + Math.random() * 4);
+  }
+  rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+  var rainMat = new THREE.LineBasicMaterial({ color: 0xaecbe0, transparent: true, opacity: 0.35 });
+  var rainLines = new THREE.LineSegments(rainGeo, rainMat);
+  rainLines.visible = false;
+  scene.add(rainLines);
+
+  var weather = { isRaining: false, timer: 25 + Math.random() * 40 };
+  function updateWeather(delta, elapsed) {
+    weather.timer -= delta;
+    if (weather.timer <= 0) {
+      if (!weather.isRaining) {
+        weather.isRaining = Math.random() < 0.75;
+        weather.timer = weather.isRaining ? (34 + Math.random() * 38) : (18 + Math.random() * 25);
+      } else {
+        weather.isRaining = false;
+        weather.timer = 55 + Math.random() * 70;
+      }
+    }
+    rainLines.visible = weather.isRaining;
+    if (weather.isRaining) {
+      var arr = rainGeo.attributes.position.array;
+      for (var i = 0; i < RAIN_COUNT; i++) {
+        var fall = rainVel[i] * delta;
+        arr[i * 6 + 1] -= fall; arr[i * 6 + 4] -= fall;
+        if (arr[i * 6 + 1] < -2) {
+          var nx = (Math.random() * 2 - 1) * 24, nz = (Math.random() * 2 - 1) * 24, ny = 16 + Math.random() * 4;
+          arr[i * 6] = nx; arr[i * 6 + 1] = ny; arr[i * 6 + 2] = nz;
+          arr[i * 6 + 3] = nx; arr[i * 6 + 4] = ny - 0.4; arr[i * 6 + 5] = nz;
+        }
+      }
+      rainGeo.attributes.position.needsUpdate = true;
+      rainLines.position.set(camera.position.x, 0, camera.position.z);
+    }
+  }
+
+  /* ===============================================================
+     FIRES & SHELTERS
+  =============================================================== */
+  var fires = [];
+  var shelters = [];
+  var stoneGeo = new THREE.DodecahedronGeometry(0.22, 0);
+  var stoneMat = new THREE.MeshLambertMaterial({ color: 0x55554f, flatShading: true });
+  var logGeo = new THREE.CylinderGeometry(0.08, 0.09, 0.9, 5);
+  var logMat = new THREE.MeshLambertMaterial({ color: 0x3a2a1a, flatShading: true });
+  var potMetalMat = new THREE.MeshLambertMaterial({ color: 0x454c50, flatShading: true, side: THREE.DoubleSide });
+  var potDarkMat = new THREE.MeshLambertMaterial({ color: 0x171c1f, flatShading: true });
+  var flamePlaneGeo = new THREE.PlaneGeometry(0.88, 1.34);
+  var flameCoreGeo = new THREE.ConeGeometry(0.15, 0.5, 7);
+  var coalGlowGeo = new THREE.CircleGeometry(0.62, 16);
+
+  function buildTinPotMesh() {
+    var pot = new THREE.Group();
+    var body = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.23, 0.34, 10, 1, true), potMetalMat);
+    body.position.y = 0.3;
+    var base = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.23, 0.045, 10), potDarkMat);
+    base.position.y = 0.13;
+    var rim = new THREE.Mesh(new THREE.TorusGeometry(0.285, 0.025, 5, 12), potDarkMat);
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = 0.47;
+    var handle = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.022, 5, 14, Math.PI), potMetalMat);
+    handle.position.y = 0.34;
+    var contentsMaterial = new THREE.MeshLambertMaterial({ color: 0x75b7d4, transparent: true, opacity: 0.82, side: THREE.DoubleSide });
+    var contents = new THREE.Mesh(new THREE.CircleGeometry(0.245, 12), contentsMaterial);
+    contents.rotation.x = -Math.PI / 2;
+    contents.position.y = 0.455;
+    contents.visible = false;
+    pot.add(body, base, rim, handle, contents);
+    pot.userData.contents = contents;
+    return pot;
+  }
+
+  function makeFlameMaterial(seed) {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uOpacity: { value: 0 },
+        uSeed: { value: seed }
+      },
+      vertexShader: [
+        'varying vec2 vUv;',
+        'void main(){',
+        '  vUv = uv;',
+        '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+        '}'
+      ].join('\n'),
+      fragmentShader: [
+        'precision mediump float;',
+        'varying vec2 vUv;',
+        'uniform float uTime;',
+        'uniform float uOpacity;',
+        'uniform float uSeed;',
+        'float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)) + uSeed) * 43758.5453); }',
+        'float noise(vec2 p){',
+        '  vec2 i=floor(p), f=fract(p);',
+        '  f=f*f*(3.0-2.0*f);',
+        '  return mix(mix(hash(i),hash(i+vec2(1.0,0.0)),f.x),mix(hash(i+vec2(0.0,1.0)),hash(i+vec2(1.0,1.0)),f.x),f.y);',
+        '}',
+        'float fbm(vec2 p){',
+        '  float value=0.0;',
+        '  value += noise(p) * 0.58;',
+        '  value += noise(p*2.07+3.1) * 0.28;',
+        '  value += noise(p*4.13+7.7) * 0.14;',
+        '  return value;',
+        '}',
+        'void main(){',
+        '  vec2 uv=vUv;',
+        '  float flow=fbm(vec2(uv.x*3.2, uv.y*3.0-uTime*2.15));',
+        '  float lick=sin(uv.y*10.0-uTime*5.2+flow*5.0)*0.035;',
+        '  float taper=mix(0.43,0.035,smoothstep(0.0,1.0,uv.y));',
+        '  float sideways=(flow-0.5)*0.20*uv.y+lick;',
+        '  float body=1.0-smoothstep(taper*0.62,taper,abs(uv.x-0.5+sideways));',
+        '  float baseFade=smoothstep(0.01,0.13,uv.y);',
+        '  float topFade=1.0-smoothstep(0.72,1.0,uv.y+flow*0.16);',
+        '  float breakup=0.62+0.55*smoothstep(0.20,0.72,flow+(1.0-uv.y)*0.26);',
+        '  float alpha=body*baseFade*topFade*breakup*uOpacity;',
+        '  vec3 red=vec3(0.98,0.055,0.008);',
+        '  vec3 orange=vec3(1.0,0.30,0.015);',
+        '  vec3 yellow=vec3(1.0,0.93,0.38);',
+        '  float heat=clamp((1.0-uv.y)*1.15+flow*0.25,0.0,1.0);',
+        '  vec3 color=mix(red,orange,smoothstep(0.18,0.62,heat));',
+        '  color=mix(color,yellow,smoothstep(0.62,0.98,heat)*body);',
+        '  gl_FragColor=vec4(color*1.08,alpha);',
+        '}'
+      ].join('\n'),
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending
+    });
+  }
+
+  function buildFlameFx(x, z, h) {
+    var group = new THREE.Group();
+    group.position.set(x, h, z);
+    var material = makeFlameMaterial(Math.random() * 100);
+    var lickMaterial = makeFlameMaterial(Math.random() * 100);
+    var flameA = new THREE.Mesh(flamePlaneGeo, material);
+    flameA.position.y = 0.82;
+    var flameB = new THREE.Mesh(flamePlaneGeo, material);
+    flameB.position.y = 0.82;
+    flameB.rotation.y = Math.PI / 2;
+    var lickA = new THREE.Mesh(flamePlaneGeo, lickMaterial);
+    lickA.position.set(-0.23, 0.62, 0.08);
+    lickA.scale.set(0.52, 0.68, 1);
+    lickA.rotation.y = 0.72;
+    var lickB = new THREE.Mesh(flamePlaneGeo, lickMaterial);
+    lickB.position.set(0.22, 0.58, -0.07);
+    lickB.scale.set(0.46, 0.6, 1);
+    lickB.rotation.y = -0.78;
+    var coreMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffe36e, transparent: true, opacity: 0,
+      depthWrite: false, blending: THREE.AdditiveBlending
+    });
+    var core = new THREE.Mesh(flameCoreGeo, coreMaterial);
+    core.position.y = 0.42;
+    var glowMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff5417, transparent: true, opacity: 0,
+      depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide
+    });
+    var groundGlow = new THREE.Mesh(coalGlowGeo, glowMaterial);
+    groundGlow.rotation.x = -Math.PI / 2;
+    groundGlow.position.y = 0.18;
+    group.add(flameA, flameB, lickA, lickB, core, groundGlow);
+    scene.add(group);
+    return { group: group, materials: [material, lickMaterial], core: core, groundGlow: groundGlow };
+  }
+
+  function buildFireMesh() {
+    var group = new THREE.Group();
+    var fireLogs = [];
+    for (var i = 0; i < 8; i++) {
+      var ang = (i / 8) * Math.PI * 2;
+      var stone = new THREE.Mesh(stoneGeo, stoneMat);
+      stone.position.set(Math.cos(ang) * 0.55, 0.1, Math.sin(ang) * 0.55);
+      group.add(stone);
+    }
+    for (var j = 0; j < 4; j++) {
+      var log = new THREE.Mesh(logGeo, logMat);
+      log.rotation.z = Math.PI / 2;
+      log.rotation.y = (j / 4) * Math.PI;
+      log.position.y = 0.12;
+      log.visible = false;
+      group.add(log);
+      fireLogs.push(log);
+    }
+    var cookPot = buildTinPotMesh();
+    cookPot.position.y = 0.42;
+    cookPot.visible = false;
+    var supportA = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.055, 0.065), potDarkMat);
+    supportA.position.y = 0.08;
+    var supportB = supportA.clone();
+    supportB.rotation.y = Math.PI / 2;
+    cookPot.add(supportA, supportB);
+    group.add(cookPot);
+    group.userData.cookPot = cookPot;
+    group.userData.fireLogs = fireLogs;
+    return group;
+  }
+  var EMBER_COUNT = 16;
+  var FLAME_PARTICLE_COUNT = 24;
+  function createFire(x, z, h) {
+    var group = buildFireMesh();
+    group.position.set(x, h, z);
+    scene.add(group);
+    var flame = buildFlameFx(x, z, h);
+    var flameParticleGeo = new THREE.BufferGeometry();
+    var flameParticlePos = new Float32Array(FLAME_PARTICLE_COUNT * 3);
+    var flameParticleColors = new Float32Array(FLAME_PARTICLE_COUNT * 3);
+    var flameParticleSeeds = [];
+    for (var fp = 0; fp < FLAME_PARTICLE_COUNT; fp++) {
+      var hot = fp % 3 === 0;
+      flameParticleColors[fp * 3] = 1;
+      flameParticleColors[fp * 3 + 1] = hot ? 0.86 : 0.23 + Math.random() * 0.18;
+      flameParticleColors[fp * 3 + 2] = hot ? 0.28 : 0.015;
+      flameParticleSeeds.push({ phase: Math.random(), speed: 1.25 + Math.random() * 1.1, angle: Math.random() * Math.PI * 2 });
+    }
+    flameParticleGeo.setAttribute('position', new THREE.BufferAttribute(flameParticlePos, 3));
+    flameParticleGeo.setAttribute('color', new THREE.BufferAttribute(flameParticleColors, 3));
+    var flameParticleMat = new THREE.PointsMaterial({
+      map: glowTex, size: 0.24, vertexColors: true, transparent: true,
+      depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0
+    });
+    var flameParticles = new THREE.Points(flameParticleGeo, flameParticleMat);
+    scene.add(flameParticles);
+    var emberGeo = new THREE.BufferGeometry();
+    var emberPos = new Float32Array(EMBER_COUNT * 3);
+    var seeds = [];
+    for (var i = 0; i < EMBER_COUNT; i++) seeds.push(Math.random() * 10);
+    emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
+    var emberMat = new THREE.PointsMaterial({ map: glowTex, size: 0.1, color: 0xffa347, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 });
+    var embers = new THREE.Points(emberGeo, emberMat);
+    scene.add(embers);
+    var light = new THREE.PointLight(0xff7a32, 0, 16, 1.7);
+    light.position.set(x, h + 0.7, z);
+    scene.add(light);
+    return {
+      x: x, z: z, h: h, lit: false, fuel: 0, prepared: false, group: group, flame: flame,
+      pot: group.userData.cookPot,
+      logs: group.userData.fireLogs,
+      flameParticles: flameParticles, flameParticleSeeds: flameParticleSeeds,
+      embers: embers, seeds: seeds, light: light
+    };
+  }
+  function setFirePrepared(fire, prepared) {
+    fire.prepared = prepared;
+    for (var logIndex = 0; logIndex < fire.logs.length; logIndex++) fire.logs[logIndex].visible = prepared;
+  }
+  function showFirePot(fire, mode) {
+    if (!fire || !fire.pot) return;
+    fire.pot.visible = !!mode;
+    fire.pot.userData.contents.visible = !!mode;
+    if (mode === 'cook') fire.pot.userData.contents.material.color.setHex(0x6d4b2d);
+    else if (mode === 'stew') fire.pot.userData.contents.material.color.setHex(0x873f2b);
+    else fire.pot.userData.contents.material.color.setHex(0x75b7d4);
+  }
+
+  var rainCatchPot = buildTinPotMesh();
+  rainCatchPot.visible = false;
+  scene.add(rainCatchPot);
+  function burnFireFuel(fire, worldMinutesElapsed) {
+    if (!fire.lit) return;
+    var rainMultiplier = weather.isRaining && !isSheltered(fire.x, fire.z) ? RAIN_FIRE_DRAIN_MULTIPLIER : 1;
+    fire.fuel -= Math.max(0, worldMinutesElapsed) * FIRE_FUEL_DRAIN_PER_WORLD_MINUTE * rainMultiplier;
+    if (fire.fuel <= 0) {
+      fire.fuel = 0;
+      fire.lit = false;
+      setFirePrepared(fire, false);
+    }
+  }
+  function updateFires(delta, worldMinutesElapsed, elapsed) {
+    for (var i = 0; i < fires.length; i++) {
+      var f = fires[i];
+      burnFireFuel(f, worldMinutesElapsed);
+      var flicker = Math.sin(elapsed * 9 + f.x) * 0.18 + Math.sin(elapsed * 23 + f.z) * 0.1;
+      var targetI = f.lit ? (2.45 + flicker) : 0;
+      f.light.intensity += (targetI - f.light.intensity) * Math.min(1, delta * 6);
+      f.embers.material.opacity += ((f.lit ? 0.85 : 0) - f.embers.material.opacity) * Math.min(1, delta * 4);
+      for (var flameIndex = 0; flameIndex < f.flame.materials.length; flameIndex++) {
+        var flameMaterial = f.flame.materials[flameIndex];
+        flameMaterial.uniforms.uTime.value = elapsed + flameIndex * 0.37;
+        flameMaterial.uniforms.uOpacity.value += ((f.lit ? 0.5 : 0) - flameMaterial.uniforms.uOpacity.value) * Math.min(1, delta * 7);
+      }
+      f.flame.core.material.opacity += ((f.lit ? 0.18 : 0) - f.flame.core.material.opacity) * Math.min(1, delta * 7);
+      f.flame.groundGlow.material.opacity += ((f.lit ? 0.34 : 0) - f.flame.groundGlow.material.opacity) * Math.min(1, delta * 6);
+      f.flameParticles.material.opacity += ((f.lit ? 0.82 : 0) - f.flameParticles.material.opacity) * Math.min(1, delta * 8);
+      if (f.lit) {
+        var flamePulse = 1 + Math.sin(elapsed * 12 + f.x) * 0.045 + Math.sin(elapsed * 21 + f.z) * 0.025;
+        f.flame.group.scale.set(1 / flamePulse, flamePulse, 1 / flamePulse);
+        f.flame.group.rotation.y = Math.sin(elapsed * 2.4 + f.z) * 0.12;
+        f.flame.core.scale.set(0.8 + Math.sin(elapsed * 17) * 0.08, 0.9 + Math.sin(elapsed * 13) * 0.1, 0.8 + Math.sin(elapsed * 17) * 0.08);
+        var flameParticleArray = f.flameParticles.geometry.attributes.position.array;
+        for (var particleIndex = 0; particleIndex < FLAME_PARTICLE_COUNT; particleIndex++) {
+          var particleSeed = f.flameParticleSeeds[particleIndex];
+          var particleLife = (elapsed * particleSeed.speed + particleSeed.phase) % 1;
+          var particleRadius = 0.24 * (1 - particleLife) + 0.035;
+          var particleAngle = particleSeed.angle + elapsed * (1.4 + particleSeed.speed * 0.25);
+          flameParticleArray[particleIndex * 3] = f.x + Math.cos(particleAngle) * particleRadius + Math.sin(elapsed * 8 + particleSeed.phase * 20) * 0.035;
+          flameParticleArray[particleIndex * 3 + 1] = f.h + 0.25 + particleLife * 0.92;
+          flameParticleArray[particleIndex * 3 + 2] = f.z + Math.sin(particleAngle) * particleRadius;
+        }
+        f.flameParticles.geometry.attributes.position.needsUpdate = true;
+      }
+      if (f.lit) {
+        var arr = f.embers.geometry.attributes.position.array;
+        for (var k = 0; k < EMBER_COUNT; k++) {
+          var t = (elapsed * 0.9 + f.seeds[k]) % 1.7;
+          arr[k * 3] = f.x + Math.sin(elapsed * 2 + f.seeds[k] * 9) * 0.22;
+          arr[k * 3 + 1] = f.h + 0.3 + t * 2.1;
+          arr[k * 3 + 2] = f.z + Math.cos(elapsed * 2 + f.seeds[k] * 9) * 0.22;
+        }
+        f.embers.geometry.attributes.position.needsUpdate = true;
+      }
+    }
+  }
+  function nearestFire(px, pz, range) {
+    var best = null, bd = range * range;
+    for (var i = 0; i < fires.length; i++) {
+      var f = fires[i], dx = f.x - px, dz = f.z - pz, d2 = dx * dx + dz * dz;
+      if (d2 < bd) { bd = d2; best = f; }
+    }
+    return best;
+  }
+  function isNearLitFire(px, pz, range) {
+    for (var i = 0; i < fires.length; i++) {
+      var f = fires[i]; if (!f.lit) continue;
+      var dx = f.x - px, dz = f.z - pz;
+      if (dx * dx + dz * dz < range * range) return f;
+    }
+    return null;
+  }
+  function isSheltered(px, pz) {
+    for (var i = 0; i < shelters.length; i++) {
+      var s = shelters[i], dx = px - s.x, dz = pz - s.z;
+      var cosine = Math.cos(s.yaw), sine = Math.sin(s.yaw);
+      var localX = dx * cosine - dz * sine;
+      var localZ = dx * sine + dz * cosine;
+      if (Math.abs(localX) <= s.halfWidth && localZ >= -s.rearDepth && localZ <= s.frontDepth) return s;
+    }
+    return null;
+  }
+
+  var shelterWoodMat = new THREE.MeshLambertMaterial({ color: 0x2d2013, flatShading: true });
+  var shelterBarkMat = new THREE.MeshLambertMaterial({ color: 0x49331f, flatShading: true });
+  var shelterLeafMat = new THREE.MeshLambertMaterial({ color: 0x31482b, flatShading: true, side: THREE.DoubleSide });
+  var shelterLeafDarkMat = new THREE.MeshLambertMaterial({ color: 0x1d2f20, flatShading: true, side: THREE.DoubleSide });
+  var shelterBedMat = new THREE.MeshLambertMaterial({ color: 0x4d321d, flatShading: true });
+  var shelterBedLeafMats = [
+    new THREE.MeshLambertMaterial({ color: 0x8c5427, flatShading: true }),
+    new THREE.MeshLambertMaterial({ color: 0xb47a2f, flatShading: true }),
+    new THREE.MeshLambertMaterial({ color: 0x667035, flatShading: true })
+  ];
+  function buildShelterMesh() {
+    var group = new THREE.Group();
+
+    function addPole(x, y, z, height, radius, material) {
+      var pole = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.82, radius, height, 6), material || logMat);
+      pole.position.set(x, y + height * 0.5, z);
+      group.add(pole);
+      return pole;
+    }
+    function addBeamBetween(ax, ay, az, bx, by, bz, radius, material) {
+      var start = new THREE.Vector3(ax, ay, az), end = new THREE.Vector3(bx, by, bz);
+      var direction = end.clone().sub(start), length = direction.length();
+      var beam = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.82, radius, length, 6), material || logMat);
+      beam.position.copy(start).add(end).multiplyScalar(0.5);
+      beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+      group.add(beam);
+      return beam;
+    }
+
+    addPole(-1.68, 0, 1.24, 2.34, 0.1);
+    addPole(1.68, 0, 1.24, 2.34, 0.1);
+    addPole(-1.68, 0, -1.24, 1.34, 0.11);
+    addPole(1.68, 0, -1.24, 1.34, 0.11);
+    addBeamBetween(-1.78, 2.3, 1.24, 1.78, 2.3, 1.24, 0.11, shelterBarkMat);
+    addBeamBetween(-1.78, 1.3, -1.24, 1.78, 1.3, -1.24, 0.11, shelterBarkMat);
+    addBeamBetween(-1.68, 0.12, -1.24, -1.68, 2.24, 1.24, 0.075, shelterWoodMat);
+    addBeamBetween(1.68, 0.12, -1.24, 1.68, 2.24, 1.24, 0.075, shelterWoodMat);
+
+    var roofAngle = -Math.atan2(1.08, 2.62);
+    var roofMaterials = [shelterLeafDarkMat, shelterLeafMat, shelterBarkMat];
+    for (var i = 0; i < 9; i++) {
+      var roofStrip = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.11, 2.92), roofMaterials[i % roofMaterials.length]);
+      roofStrip.position.set(-1.6 + i * 0.4, 1.82 + (i % 2) * 0.025, 0);
+      roofStrip.rotation.x = roofAngle;
+      roofStrip.rotation.z = (i % 2 ? 0.015 : -0.015);
+      group.add(roofStrip);
+    }
+
+    for (var rear = 0; rear < 7; rear++) {
+      var rearSlat = new THREE.Mesh(new THREE.BoxGeometry(0.48, 1.05, 0.11), rear % 2 ? shelterLeafMat : shelterLeafDarkMat);
+      rearSlat.position.set(-1.44 + rear * 0.48, 0.58 + (rear % 2) * 0.05, -1.27);
+      rearSlat.rotation.z = (rear % 2 ? 0.035 : -0.035);
+      group.add(rearSlat);
+    }
+
+    var leafBed = new THREE.Group();
+    var bedBase = new THREE.Mesh(new THREE.BoxGeometry(2.72, 0.07, 1.38), shelterBedMat);
+    bedBase.position.set(0, 0.055, -0.18);
+    leafBed.add(bedBase);
+    var bedLeafGeo = new THREE.DodecahedronGeometry(0.16, 0);
+    for (var bedLeafIndex = 0; bedLeafIndex < 34; bedLeafIndex++) {
+      var bedLeaf = new THREE.Mesh(bedLeafGeo, shelterBedLeafMats[bedLeafIndex % shelterBedLeafMats.length]);
+      var column = bedLeafIndex % 9, row = Math.floor(bedLeafIndex / 9);
+      bedLeaf.position.set(-1.18 + column * 0.29 + (Math.random() - 0.5) * 0.12, 0.13 + Math.random() * 0.08, -0.72 + row * 0.36 + (Math.random() - 0.5) * 0.1);
+      bedLeaf.rotation.set(Math.random() * 0.35, Math.random() * Math.PI, Math.random() * 0.35);
+      bedLeaf.scale.set(1.3 + Math.random() * 0.6, 0.24 + Math.random() * 0.12, 0.72 + Math.random() * 0.4);
+      leafBed.add(bedLeaf);
+    }
+    var leafPillow = new THREE.Mesh(new THREE.DodecahedronGeometry(0.42, 1), shelterBedLeafMats[1]);
+    leafPillow.scale.set(1.35, 0.42, 0.52);
+    leafPillow.position.set(0, 0.23, -0.72);
+    leafBed.add(leafPillow);
+    leafBed.visible = false;
+    group.add(leafBed);
+    group.userData.leafBed = leafBed;
+
+    var insulation = new THREE.Group();
+    for (var sideIndex = 0; sideIndex < 2; sideIndex++) {
+      var sideX = sideIndex === 0 ? -1.61 : 1.61;
+      for (var panelIndex = 0; panelIndex < 5; panelIndex++) {
+        var panelZ = -1.02 + panelIndex * 0.5;
+        var panelHeight = 0.82 + panelIndex * 0.13;
+        var windPanel = new THREE.Mesh(
+          new THREE.BoxGeometry(0.12, panelHeight, 0.56),
+          (panelIndex + sideIndex) % 2 ? shelterLeafMat : shelterLeafDarkMat
+        );
+        windPanel.position.set(sideX, panelHeight * 0.5 + 0.05, panelZ);
+        windPanel.rotation.x = (panelIndex % 2 ? 0.025 : -0.025);
+        insulation.add(windPanel);
+      }
+      var lashing = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 2.35, 6), shelterBarkMat);
+      lashing.position.set(sideX + (sideIndex === 0 ? 0.07 : -0.07), 0.66, 0);
+      lashing.rotation.x = Math.PI / 2;
+      insulation.add(lashing);
+    }
+    for (var thatchIndex = 0; thatchIndex < 7; thatchIndex++) {
+      var roofThatch = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.07, 0.78), thatchIndex % 2 ? shelterLeafMat : shelterLeafDarkMat);
+      roofThatch.position.set(-1.44 + thatchIndex * 0.48, 1.92, -0.75);
+      roofThatch.rotation.x = roofAngle;
+      insulation.add(roofThatch);
+    }
+    insulation.visible = false;
+    group.add(insulation);
+    group.userData.insulation = insulation;
+
+    return group;
+  }
+
+  /* ===============================================================
+     SLINGSHOT COMBAT: pebble projectiles + wildlife encounters
+  =============================================================== */
+  var projectiles = [];
+  var enemies = [];
+  var fireSafeActive = false;
+  var shelterSafeActive = false;
+  var bigfootSpawned = false;
+  var bigfootSpawnAt = 42 + Math.random() * 35;
+  var projectileGeo = new THREE.DodecahedronGeometry(0.07, 0);
+  var projectileMat = new THREE.MeshBasicMaterial({ color: 0xd9d7c9 });
+  var bearMat = new THREE.MeshLambertMaterial({ color: 0x4b2d1c, flatShading: true });
+  var bearDarkMat = new THREE.MeshLambertMaterial({ color: 0x24150f, flatShading: true });
+  var bigfootMat = new THREE.MeshLambertMaterial({ color: 0x241913, flatShading: true });
+  var bigfootFaceMat = new THREE.MeshLambertMaterial({ color: 0x5a3927, flatShading: true });
+
+  function buildBearMesh() {
+    var group = new THREE.Group();
+    var body = new THREE.Mesh(new THREE.DodecahedronGeometry(0.72, 1), bearMat);
+    body.scale.set(1.35, 0.78, 0.72); body.position.y = 0.78;
+    var head = new THREE.Mesh(new THREE.DodecahedronGeometry(0.42, 1), bearMat);
+    head.position.set(0, 0.98, -0.72);
+    var muzzle = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.25, 0.34), bearDarkMat);
+    muzzle.position.set(0, 0.88, -1.04);
+    group.add(body, head, muzzle);
+    for (var i = 0; i < 4; i++) {
+      var leg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.62, 0.24), bearDarkMat);
+      leg.position.set(i % 2 ? 0.47 : -0.47, 0.33, i < 2 ? -0.43 : 0.43);
+      group.add(leg);
+    }
+    return group;
+  }
+
+  function buildBigfootMesh() {
+    var group = new THREE.Group();
+    var torso = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.45, 0.52), bigfootMat);
+    torso.position.y = 1.55;
+    var head = new THREE.Mesh(new THREE.DodecahedronGeometry(0.36, 1), bigfootFaceMat);
+    head.scale.set(0.86, 1.05, 0.82); head.position.set(0, 2.5, -0.04);
+    group.add(torso, head);
+    for (var i = 0; i < 2; i++) {
+      var side = i ? 1 : -1;
+      var arm = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.17, 1.65, 6), bigfootMat);
+      arm.position.set(side * 0.62, 1.45, 0); arm.rotation.z = side * 0.12;
+      var leg = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.22, 1.35, 6), bigfootMat);
+      leg.position.set(side * 0.24, 0.66, 0);
+      group.add(arm, leg);
+    }
+    return group;
+  }
+
+  function spawnEnemy(type, x, z, frozenFor) {
+    var group = type === 'bigfoot' ? buildBigfootMesh() : buildBearMesh();
+    var h = getTerrainHeight(x, z);
+    group.position.set(x, h, z);
+    scene.add(group);
+    var enemy = {
+      type: type, group: group, x: x, z: z, alive: true,
+      hp: type === 'bigfoot' ? 6 : 3,
+      speed: type === 'bigfoot' ? 2.1 : 2.7,
+      detection: type === 'bigfoot' ? 30 : 16,
+      hitRadius: type === 'bigfoot' ? 0.75 : 0.85,
+      targetHeight: type === 'bigfoot' ? 1.5 : 0.8,
+      attackCooldown: 0, fleeTimer: 0,
+      frozenUntil: (typeof elapsed === 'number' ? elapsed : 0) + (frozenFor || 0)
+    };
+    enemies.push(enemy);
+    return enemy;
+  }
+
+  function shootSlingshot() {
+    if (!running) return;
+    if (!player.hasSlingshot) { showToast('Craft a slingshot first', true); return; }
+    if (player.pebbles <= 0) { showToast('Out of pebbles', true); return; }
+    player.pebbles--;
+    var direction = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+    var mesh = new THREE.Mesh(projectileGeo, projectileMat);
+    mesh.position.copy(camera.position).addScaledVector(direction, 0.62);
+    scene.add(mesh);
+    projectiles.push({ mesh: mesh, velocity: direction.multiplyScalar(19), life: 2.8 });
+  }
+
+  function hitEnemy(enemy) {
+    enemy.hp--;
+    enemy.fleeTimer = enemy.type === 'bigfoot' ? 5.5 : 2.5;
+    if (enemy.hp <= 0) {
+      enemy.alive = false;
+      enemy.group.visible = false;
+      showToast(enemy.type === 'bigfoot' ? 'Bigfoot vanished into the timber' : 'Bear driven away');
+    } else {
+      showToast(enemy.type === 'bigfoot' ? 'Hit Bigfoot · it is retreating' : 'Hit the bear · it backs off');
+    }
+  }
+
+  function updateCombat(delta) {
+    var safeFire = isNearLitFire(player.x, player.z, FIRE_SAFE_RADIUS);
+    fireSafeActive = animalAttacksEnabled && !!safeFire;
+    document.getElementById('safeZoneTag').style.display = fireSafeActive ? 'block' : 'none';
+
+    if (!bigfootSpawned && elapsed >= bigfootSpawnAt) {
+      var spawnAngle = player.yaw + Math.PI + (Math.random() - 0.5) * 1.4;
+      var spawnDistance = 25 + Math.random() * 8;
+      spawnEnemy('bigfoot', player.x + Math.sin(spawnAngle) * spawnDistance, player.z + Math.cos(spawnAngle) * spawnDistance);
+      bigfootSpawned = true;
+      showToast('A heavy shape moves between the trees...', true);
+    }
+
+    for (var i = projectiles.length - 1; i >= 0; i--) {
+      var projectile = projectiles[i];
+      projectile.life -= delta;
+      projectile.velocity.y -= 3.8 * delta;
+      projectile.mesh.position.addScaledVector(projectile.velocity, delta);
+      var hit = false;
+      for (var e = 0; e < enemies.length; e++) {
+        var enemy = enemies[e]; if (!enemy.alive) continue;
+        var ex = projectile.mesh.position.x - enemy.x;
+        var ey = projectile.mesh.position.y - (getTerrainHeight(enemy.x, enemy.z) + enemy.targetHeight);
+        var ez = projectile.mesh.position.z - enemy.z;
+        if (ex * ex + ey * ey + ez * ez < enemy.hitRadius * enemy.hitRadius) {
+          hitEnemy(enemy); hit = true; break;
+        }
+      }
+      var projectileGround = getTerrainHeight(projectile.mesh.position.x, projectile.mesh.position.z) + 0.05;
+      if (hit || projectile.life <= 0 || projectile.mesh.position.y <= projectileGround) {
+        scene.remove(projectile.mesh);
+        projectiles.splice(i, 1);
+      }
+    }
+
+    for (var j = 0; j < enemies.length; j++) {
+      var creature = enemies[j]; if (!creature.alive) continue;
+      creature.attackCooldown = Math.max(0, creature.attackCooldown - delta);
+      creature.fleeTimer = Math.max(0, creature.fleeTimer - delta);
+      var dx = player.x - creature.x, dz = player.z - creature.z;
+      var distance = Math.sqrt(dx * dx + dz * dz) || 0.001;
+      var creatureFire = isNearLitFire(creature.x, creature.z, FIRE_SAFE_RADIUS + 1.5);
+      if (elapsed >= creature.frozenUntil && creatureFire) {
+        var fireDx = creature.x - creatureFire.x, fireDz = creature.z - creatureFire.z;
+        var fireDistance = Math.sqrt(fireDx * fireDx + fireDz * fireDz) || 0.001;
+        creature.x += (fireDx / fireDistance) * creature.speed * 1.25 * delta;
+        creature.z += (fireDz / fireDistance) * creature.speed * 1.25 * delta;
+      } else if (elapsed >= creature.frozenUntil && creature.fleeTimer > 0) {
+        creature.x -= (dx / distance) * creature.speed * delta;
+        creature.z -= (dz / distance) * creature.speed * delta;
+      } else if (animalAttacksEnabled && elapsed >= creature.frozenUntil && !safeFire && distance < creature.detection) {
+        creature.x += (dx / distance) * creature.speed * delta;
+        creature.z += (dz / distance) * creature.speed * delta;
+      }
+      creature.group.position.set(creature.x, getTerrainHeight(creature.x, creature.z), creature.z);
+      creature.group.rotation.y = Math.atan2(dx, dz);
+      if (animalAttacksEnabled && !safeFire && !creatureFire && distance < 1.45 && creature.fleeTimer <= 0 && creature.attackCooldown <= 0) {
+        creature.attackCooldown = 2.2;
+        player.health = Math.max(0, player.health - (creature.type === 'bigfoot' ? 14 : 9));
+        showToast(creature.type === 'bigfoot' ? 'Bigfoot struck you!' : 'The bear swiped you!', true);
+      }
+    }
+  }
+
+  spawnEnemy('bear', 18, -14);
+
+  /* ===============================================================
+     POST PROCESSING: pixelation + ordered dither
+  =============================================================== */
+  var rtW = Math.max(2, Math.floor(window.innerWidth * PIXEL_SCALE));
+  var rtH = Math.max(2, Math.floor(window.innerHeight * PIXEL_SCALE));
+  var renderTarget = new THREE.WebGLRenderTarget(rtW, rtH, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, format: THREE.RGBAFormat });
+  var postScene = new THREE.Scene();
+  var postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  var postMat = new THREE.ShaderMaterial({
+    uniforms: { tDiffuse: { value: renderTarget.texture }, levels: { value: 10.0 }, ditherStrength: { value: 0.06 } },
+    vertexShader: ['varying vec2 vUv;', 'void main(){ vUv = uv; gl_Position = vec4(position, 1.0); }'].join('\n'),
+    fragmentShader: [
+      'precision mediump float;',
+      'varying vec2 vUv;',
+      'uniform sampler2D tDiffuse;',
+      'uniform float levels;',
+      'uniform float ditherStrength;',
+      'float bayerVal(vec2 fc){',
+      '  int x = int(mod(fc.x, 4.0));',
+      '  int y = int(mod(fc.y, 4.0));',
+      '  int idx = x + y * 4;',
+      '  if (idx == 0) return 0.0;', '  if (idx == 1) return 8.0;', '  if (idx == 2) return 2.0;', '  if (idx == 3) return 10.0;',
+      '  if (idx == 4) return 12.0;', '  if (idx == 5) return 4.0;', '  if (idx == 6) return 14.0;', '  if (idx == 7) return 6.0;',
+      '  if (idx == 8) return 3.0;', '  if (idx == 9) return 11.0;', '  if (idx == 10) return 1.0;', '  if (idx == 11) return 9.0;',
+      '  if (idx == 12) return 15.0;', '  if (idx == 13) return 7.0;', '  if (idx == 14) return 13.0;',
+      '  return 5.0;',
+      '}',
+      'void main(){',
+      '  vec3 color = texture2D(tDiffuse, vUv).rgb;',
+      '  float d = (bayerVal(gl_FragCoord.xy) / 16.0) - 0.5;',
+      '  color += d * ditherStrength;',
+      '  color = floor(color * levels + 0.5) / levels;',
+      '  float scan = 0.94 + 0.06 * step(0.5, fract(gl_FragCoord.y * 0.5));',
+      '  color *= scan;',
+      '  gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);',
+      '}'
+    ].join('\n')
+  });
+  var postQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMat);
+  postScene.add(postQuad);
+
+  function onResize() {
+    var w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    rtW = Math.max(2, Math.floor(w * PIXEL_SCALE));
+    rtH = Math.max(2, Math.floor(h * PIXEL_SCALE));
+    renderTarget.setSize(rtW, rtH);
+  }
+  window.addEventListener('resize', onResize);
+  onResize();
+
+  /* ===============================================================
+     AUDIO: supplied effects and loops + synthesized reactive cues
+  =============================================================== */
+  var audioCtx = null, windGain = null, rainGain = null, fireGain = null;
+  var chopAudio = new Audio('assets/chop-wood.mp3');
+  chopAudio.preload = 'auto';
+  chopAudio.volume = 0.68;
+  var waterDrinkAudio = new Audio('assets/drink-water.mp3');
+  waterDrinkAudio.preload = 'auto';
+  waterDrinkAudio.volume = 0.72;
+  var cookingAudio = new Audio('assets/cooking-sizzle.mp3');
+  cookingAudio.preload = 'auto';
+  cookingAudio.volume = 0.56;
+  cookingAudio.loop = true;
+  var eatingAudio = new Audio('assets/eating.mp3');
+  eatingAudio.preload = 'auto';
+  eatingAudio.volume = 0.7;
+  var deathAudio = new Audio('assets/death-groan.mp3');
+  deathAudio.preload = 'auto';
+  deathAudio.volume = 0.82;
+  var campfireLoopAudio = new Audio('assets/campfire-loop.mp3');
+  campfireLoopAudio.preload = 'auto';
+  campfireLoopAudio.loop = true;
+  campfireLoopAudio.volume = 0;
+  var forestLoopAudio = new Audio('assets/night-forest-loop.mp3');
+  forestLoopAudio.preload = 'auto';
+  forestLoopAudio.loop = true;
+  forestLoopAudio.volume = 0.28;
+  var ambientLoopsStarted = false;
+  var forageSoundEvents = { berry: 0, mushroom: 0, leaves: 0 };
+  function playChopSound() {
+    try {
+      chopAudio.pause();
+      chopAudio.currentTime = 0;
+      var playPromise = chopAudio.play();
+      if (playPromise && playPromise.catch) playPromise.catch(function () {});
+    } catch (e) {}
+  }
+  function playWaterDrinkSound() {
+    try {
+      waterDrinkAudio.pause();
+      waterDrinkAudio.currentTime = 0;
+      var playPromise = waterDrinkAudio.play();
+      if (playPromise && playPromise.catch) playPromise.catch(function () {});
+    } catch (e) {}
+  }
+  function playCookingSound() {
+    try {
+      cookingAudio.pause();
+      cookingAudio.currentTime = 0;
+      var playPromise = cookingAudio.play();
+      if (playPromise && playPromise.catch) playPromise.catch(function () {});
+    } catch (e) {}
+  }
+  function stopCookingSound() {
+    try {
+      cookingAudio.pause();
+      cookingAudio.currentTime = 0;
+    } catch (e) {}
+  }
+  function playEatingSound() {
+    try {
+      eatingAudio.pause();
+      eatingAudio.currentTime = 0;
+      var playPromise = eatingAudio.play();
+      if (playPromise && playPromise.catch) playPromise.catch(function () {});
+    } catch (e) {}
+  }
+  function playDeathSound() {
+    try {
+      deathAudio.pause();
+      deathAudio.currentTime = 0;
+      var playPromise = deathAudio.play();
+      if (playPromise && playPromise.catch) playPromise.catch(function () {});
+    } catch (e) {}
+  }
+  function startAmbientLoops() {
+    if (ambientLoopsStarted) return;
+    ambientLoopsStarted = true;
+    var forestPromise = forestLoopAudio.play();
+    if (forestPromise && forestPromise.catch) forestPromise.catch(function () {});
+    var firePromise = campfireLoopAudio.play();
+    if (firePromise && firePromise.catch) firePromise.catch(function () {});
+  }
+  function playForageSound(type) {
+    if (!audioCtx) return;
+    forageSoundEvents[type]++;
+    var now = audioCtx.currentTime;
+    var isLeaves = type === 'leaves';
+    var noiseDuration = type === 'berry' ? 0.18 : (isLeaves ? 0.28 : 0.12);
+    var noiseBuffer = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate * noiseDuration), audioCtx.sampleRate);
+    var noiseData = noiseBuffer.getChannelData(0);
+    for (var i = 0; i < noiseData.length; i++) noiseData[i] = (Math.random() * 2 - 1) * (1 - i / noiseData.length);
+    var noise = audioCtx.createBufferSource();
+    noise.buffer = noiseBuffer;
+    var filter = audioCtx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = type === 'berry' ? 1500 : (isLeaves ? 1050 : 720);
+    filter.Q.value = 0.65;
+    var rustleGain = audioCtx.createGain();
+    rustleGain.gain.setValueAtTime(type === 'berry' ? 0.065 : (isLeaves ? 0.075 : 0.05), now);
+    rustleGain.gain.exponentialRampToValueAtTime(0.001, now + noiseDuration);
+    noise.connect(filter).connect(rustleGain).connect(audioCtx.destination);
+    noise.start(now); noise.stop(now + noiseDuration);
+
+    var pluck = audioCtx.createOscillator(), pluckGain = audioCtx.createGain();
+    pluck.type = 'sine';
+    pluck.frequency.setValueAtTime(type === 'berry' ? 720 : (isLeaves ? 420 : 260), now);
+    pluck.frequency.exponentialRampToValueAtTime(type === 'berry' ? 980 : (isLeaves ? 290 : 155), now + 0.1);
+    pluckGain.gain.setValueAtTime(type === 'berry' ? 0.055 : (isLeaves ? 0.035 : 0.045), now);
+    pluckGain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+    pluck.connect(pluckGain).connect(audioCtx.destination);
+    pluck.start(now); pluck.stop(now + 0.14);
+  }
+  var heartbeatActive = false;
+  function initAudio() {
+    startAmbientLoops();
+    if (audioCtx) return;
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      var bufSize = audioCtx.sampleRate * 2;
+      var buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+      var data = buf.getChannelData(0);
+      for (var i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+
+      var windSrc = audioCtx.createBufferSource(); windSrc.buffer = buf; windSrc.loop = true;
+      var windFilter = audioCtx.createBiquadFilter(); windFilter.type = 'lowpass'; windFilter.frequency.value = 340;
+      windGain = audioCtx.createGain(); windGain.gain.value = 0.045;
+      windSrc.connect(windFilter).connect(windGain).connect(audioCtx.destination);
+      windSrc.start();
+
+      var rainSrc = audioCtx.createBufferSource(); rainSrc.buffer = buf; rainSrc.loop = true;
+      var rainFilter = audioCtx.createBiquadFilter(); rainFilter.type = 'highpass'; rainFilter.frequency.value = 900;
+      rainGain = audioCtx.createGain(); rainGain.gain.value = 0.0;
+      rainSrc.connect(rainFilter).connect(rainGain).connect(audioCtx.destination);
+      rainSrc.start();
+
+      var fireSrc = audioCtx.createBufferSource(); fireSrc.buffer = buf; fireSrc.loop = true;
+      var fireFilter = audioCtx.createBiquadFilter(); fireFilter.type = 'bandpass'; fireFilter.frequency.value = 1700; fireFilter.Q.value = 0.5;
+      fireGain = audioCtx.createGain(); fireGain.gain.value = 0.0;
+      fireSrc.connect(fireFilter).connect(fireGain).connect(audioCtx.destination);
+      fireSrc.start();
+
+      scheduleCricket();
+      scheduleOwl();
+    } catch (e) {}
+  }
+  function scheduleCricket() {
+    if (!audioCtx) return;
+    setTimeout(function () { playChirp(); scheduleCricket(); }, (0.4 + Math.random() * 2.0) * 1000);
+  }
+  function playChirp() {
+    if (!audioCtx) return;
+    var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = 'square'; o.frequency.value = 3000 + Math.random() * 900;
+    var t = audioCtx.currentTime;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.018, t + 0.01); g.gain.linearRampToValueAtTime(0, t + 0.09);
+    o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t + 0.12);
+  }
+  function scheduleOwl() {
+    if (!audioCtx) return;
+    setTimeout(function () { playOwl(); scheduleOwl(); }, (16 + Math.random() * 28) * 1000);
+  }
+  function playOwl() {
+    if (!audioCtx) return;
+    var o = audioCtx.createOscillator(), g = audioCtx.createGain(), t = audioCtx.currentTime;
+    o.type = 'sine';
+    o.frequency.setValueAtTime(480, t); o.frequency.exponentialRampToValueAtTime(290, t + 0.5);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.045, t + 0.08); g.gain.linearRampToValueAtTime(0, t + 0.6);
+    o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t + 0.7);
+  }
+  function scheduleHeartbeat() {
+    if (!heartbeatActive || !audioCtx) return;
+    playThump();
+    setTimeout(function () { if (heartbeatActive) playThump(); }, 160);
+    setTimeout(scheduleHeartbeat, 650);
+  }
+  function playThump() {
+    var o = audioCtx.createOscillator(), g = audioCtx.createGain(), t = audioCtx.currentTime;
+    o.type = 'sine'; o.frequency.value = 55;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.16, t + 0.02); g.gain.linearRampToValueAtTime(0, t + 0.18);
+    o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t + 0.2);
+  }
+
+  /* ===============================================================
+     PLAYER STATE
+  =============================================================== */
+  var player = {
+    x: 0, z: 6, yaw: -0.76, pitch: -0.05, running: false, alive: true,
+    hunger: 100, thirst: 100, warmth: 100, wetness: 0, health: 100,
+    wood: 0, sticks: 0, kindling: 0, leaves: 0, pebbles: 0, berries: 0, hasSlingshot: false,
+    rawWater: 0, cleanWater: 0, potWater: 0, rawMush: 0, cookedMush: 0, stew: 0,
+    busy: null
+  };
+  function hungerMovementMultiplier() {
+    if (player.hunger >= LOW_ENERGY_HUNGER) return 1;
+    return 0.62 + 0.38 * (player.hunger / LOW_ENERGY_HUNGER);
+  }
+  function hungerEnergyState() {
+    if (player.hunger <= EXHAUSTED_HUNGER) return 'exhausted';
+    if (player.hunger < LOW_ENERGY_HUNGER) return 'low';
+    return 'normal';
+  }
+  function advanceHunger(worldMinutesElapsed) {
+    var minutes = Math.max(0, worldMinutesElapsed);
+    var hungerBefore = player.hunger;
+    player.hunger = Math.max(0, hungerBefore - minutes * HUNGER_DRAIN_PER_WORLD_MINUTE);
+    var starvationMinutes = hungerBefore <= 0
+      ? minutes
+      : Math.max(0, minutes - hungerBefore / HUNGER_DRAIN_PER_WORLD_MINUTE);
+    if (starvationMinutes > 0) player.health -= starvationMinutes * STARVATION_HEALTH_LOSS_PER_WORLD_MINUTE;
+    return player.hunger <= 0;
+  }
+  function hydrationState() {
+    if (player.thirst <= 10) return 'critical';
+    if (player.thirst < 30) return 'dehydrated';
+    return 'normal';
+  }
+  function temperatureState() {
+    if (player.warmth <= 10) return 'hypothermic';
+    if (player.warmth < 30) return 'cold';
+    return 'comfortable';
+  }
+  function advanceThirst(worldMinutesElapsed) {
+    var minutes = Math.max(0, worldMinutesElapsed);
+    var thirstBefore = player.thirst;
+    player.thirst = Math.max(0, thirstBefore - minutes * THIRST_DRAIN_PER_WORLD_MINUTE);
+    var dehydrationMinutes = thirstBefore <= 0
+      ? minutes
+      : Math.max(0, minutes - thirstBefore / THIRST_DRAIN_PER_WORLD_MINUTE);
+    if (dehydrationMinutes > 0) player.health -= dehydrationMinutes * DEHYDRATION_HEALTH_LOSS_PER_WORLD_MINUTE;
+    return player.thirst <= 0;
+  }
+  function warmthDrainMultiplier(shelter, daylight, raining, wetness) {
+    var multiplier = 1.15 - Math.max(0, Math.min(1, daylight)) * 0.3;
+    if (raining) multiplier *= 1.65;
+    multiplier *= 1 + Math.max(0, wetness) / 45;
+    if (shelter) multiplier *= shelter.insulated ? (raining ? 0.05 : 0.18) : (raining ? 0.12 : 0.32);
+    return multiplier;
+  }
+  function advanceWarmth(worldMinutesElapsed, nearFire, shelter, daylight, raining, wetness) {
+    var minutes = Math.max(0, worldMinutesElapsed);
+    if (nearFire) {
+      player.warmth = Math.min(100, player.warmth + minutes * WARMTH_RECOVERY_PER_WORLD_MINUTE);
+      return false;
+    }
+    var drainRate = WARMTH_DRAIN_PER_WORLD_MINUTE * warmthDrainMultiplier(shelter, daylight, raining, wetness);
+    var warmthBefore = player.warmth;
+    player.warmth = Math.max(0, warmthBefore - minutes * drainRate);
+    var hypothermiaMinutes = warmthBefore <= 0
+      ? minutes
+      : Math.max(0, minutes - warmthBefore / drainRate);
+    if (hypothermiaMinutes > 0) player.health -= hypothermiaMinutes * HYPOTHERMIA_HEALTH_LOSS_PER_WORLD_MINUTE;
+    return player.warmth <= 0;
+  }
+  function spawnPlayer() {
+    player.x = 0; player.z = 6; player.yaw = -0.76; player.pitch = -0.05;
+    player.hunger = 100; player.thirst = 100; player.warmth = 100; player.wetness = 0; player.health = 100; player.alive = true;
+    player.wood = 0; player.sticks = 0; player.kindling = 0; player.leaves = 0; player.pebbles = 0; player.berries = 0; player.hasSlingshot = false;
+    player.rawWater = 0; player.cleanWater = 0; player.potWater = 0; player.rawMush = 0; player.cookedMush = 0; player.stew = 0;
+    player.busy = null;
+    hungerWarningLevel = 0;
+    thirstWarningLevel = 0;
+    coldWarningLevel = 0;
+    var g = getTerrainHeight(player.x, player.z);
+    camera.position.set(player.x, Math.max(g, WATER_LEVEL) + EYE_HEIGHT, player.z);
+    camera.rotation.y = player.yaw; camera.rotation.x = player.pitch;
+  }
+
+  var elapsed = 0, survivalStart = 0, bestTime = 0;
+  var worldMinutes = START_WORLD_MINUTES;
+  function minuteOfDay() {
+    return ((worldMinutes % 1440) + 1440) % 1440;
+  }
+  function worldDay() {
+    return Math.floor(worldMinutes / 1440) + 1;
+  }
+  function isNightTime() {
+    var minute = minuteOfDay();
+    return minute < DAWN_MINUTE || minute >= DUSK_MINUTE;
+  }
+  function daylightFactor() {
+    var minute = minuteOfDay();
+    if (minute < 5 * 60 + 30 || minute >= 20 * 60) return 0;
+    if (minute < 8 * 60) return smoothstep(5 * 60 + 30, 8 * 60, minute);
+    if (minute < 17 * 60 + 30) return 1;
+    return 1 - smoothstep(17 * 60 + 30, 20 * 60, minute);
+  }
+  function nextDawnAfter(totalMinutes) {
+    var dayStart = Math.floor(totalMinutes / 1440) * 1440;
+    var candidate = dayStart + DAWN_MINUTE;
+    return candidate <= totalMinutes + 1 ? candidate + 1440 : candidate;
+  }
+  function formatWorldTime(totalMinutes) {
+    var minute = ((Math.floor(totalMinutes) % 1440) + 1440) % 1440;
+    var hour24 = Math.floor(minute / 60), mins = minute % 60;
+    var suffix = hour24 >= 12 ? 'PM' : 'AM';
+    var hour12 = hour24 % 12 || 12;
+    return hour12 + ':' + String(mins).padStart(2, '0') + ' ' + suffix;
+  }
+  function formatWorldDuration(minutes) {
+    minutes = Math.max(0, Math.round(minutes));
+    var hours = Math.floor(minutes / 60), mins = minutes % 60;
+    return (hours ? hours + 'h ' : '') + mins + 'm';
+  }
+  var demoProgress = null;
+  function resetDemoProgress() {
+    demoProgress = {
+      woodGathered: 0,
+      fireBuilt: false,
+      fireLit: false,
+      waterCollected: false,
+      rainWaterCollected: false,
+      waterSecured: false,
+      foodForaged: false,
+      foodSecured: false,
+      shelterBuilt: false,
+      dawnAt: null,
+      complete: false
+    };
+  }
+  resetDemoProgress();
+  try { var st = localStorage.getItem('wildwood_best_v2'); if (st) bestTime = parseFloat(st) || 0; } catch (e) {}
+
+  function showToast(text, risky) {
+    var el = document.getElementById('toast');
+    el.textContent = text;
+    el.style.color = risky ? '#ff8899' : '';
+    el.classList.add('show');
+    clearTimeout(el._t);
+    el._t = setTimeout(function () { el.classList.remove('show'); }, 1500);
+  }
+  function toggleFlashlight() {
+    if (!running) return;
+    flashlightOn = !flashlightOn;
+    flashlight.visible = flashlightOn;
+    flashlightFill.visible = flashlightOn;
+    showToast('Flashlight ' + (flashlightOn ? 'on' : 'off'));
+  }
+  function updateFlashlightTransform() {
+    flashlight.visible = flashlightOn;
+    flashlightFill.visible = flashlightOn;
+    flashlight.position.copy(camera.position);
+    flashlightFill.position.copy(camera.position);
+    camera.getWorldDirection(flashlightDirection);
+    flashlightTarget.position.copy(camera.position).addScaledVector(flashlightDirection, 18);
+    flashlightTarget.updateMatrixWorld();
+  }
+
+  function compassFromDelta(dx, dz) {
+    var directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    var angle = Math.atan2(dx, -dz);
+    return directions[(Math.round(angle / (Math.PI / 4)) + 8) % 8];
+  }
+  function targetHint(label, x, z) {
+    var dx = x - player.x, dz = z - player.z;
+    return label + ' · ' + Math.round(Math.sqrt(dx * dx + dz * dz)) + 'm ' + compassFromDelta(dx, dz);
+  }
+  function nearestTreeHint() {
+    var nearest = null, best = Infinity;
+    for (var i = 0; i < trees.length; i++) {
+      if (trees[i].chopped) continue;
+      var dx = trees[i].x - player.x, dz = trees[i].z - player.z, d2 = dx * dx + dz * dz;
+      if (d2 < best) { best = d2; nearest = trees[i]; }
+    }
+    return nearest ? targetHint('Choppable tree', nearest.x, nearest.z) + ' · use E nearby' : 'Search deeper in the forest for standing timber.';
+  }
+  function nearestDeadfallHint() {
+    var nearest = null, best = Infinity;
+    for (var i = 0; i < deadfalls.length; i++) {
+      if (deadfalls[i].collected) continue;
+      var dx = deadfalls[i].x - player.x, dz = deadfalls[i].z - player.z, d2 = dx * dx + dz * dz;
+      if (d2 < best) { best = d2; nearest = deadfalls[i]; }
+    }
+    return nearest ? targetHint('Fallen dead tree', nearest.x, nearest.z) + ' · gather guaranteed dry kindling' : 'Search the forest floor for a fallen dead tree.';
+  }
+  function nearestMushroomHint() {
+    var nearest = null, best = Infinity;
+    for (var i = 0; i < forageSpots.length; i++) {
+      var spot = forageSpots[i];
+      if (spot.type !== 'mushroom' || spot.collected) continue;
+      var dx = spot.x - player.x, dz = spot.z - player.z, d2 = dx * dx + dz * dz;
+      if (d2 < best) { best = d2; nearest = spot; }
+    }
+    return nearest ? targetHint('Mushrooms', nearest.x, nearest.z) + ' · forage with E' : 'Search damp ground near trees.';
+  }
+  function updateDemoObjective() {
+    var objectiveFire = fires.length ? fires[fires.length - 1] : null;
+    var steps = [
+      {
+        done: demoProgress.woodGathered >= FIRE_COST,
+        title: 'Gather ' + FIRE_COST + ' firewood',
+        hint: nearestTreeHint()
+      },
+      {
+        done: demoProgress.fireBuilt && demoProgress.fireLit,
+        title: !demoProgress.fireBuilt
+          ? 'Build a stone fire pit'
+          : (!objectiveFire || !objectiveFire.prepared
+            ? 'Lay firewood in the pit'
+            : (player.kindling < FIRE_KINDLING_COST ? 'Find dry kindling' : 'Light the prepared fire')),
+        hint: !demoProgress.fireBuilt
+          ? (player.pebbles >= FIRE_PIT_PEBBLE_COST
+            ? 'Press F or use the fire-pit button on clear ground.'
+            : 'Collect ' + (FIRE_PIT_PEBBLE_COST - player.pebbles) + ' more pebbles for the stone ring.')
+          : (!objectiveFire || !objectiveFire.prepared
+            ? (objectiveFire ? targetHint('Fire pit', objectiveFire.x, objectiveFire.z) + ' · lay in ' + FIRE_COST + ' wood' : 'Return to your fire pit.')
+            : (player.kindling < FIRE_KINDLING_COST
+              ? nearestDeadfallHint()
+              : targetHint('Prepared fire pit', objectiveFire.x, objectiveFire.z) + ' · use one kindling to light it'))
+      },
+      {
+        done: demoProgress.waterSecured,
+        title: player.potWater > 0 ? 'Drink the caught rainwater' : (demoProgress.waterCollected ? 'Boil and drink water' : 'Secure drinking water'),
+        hint: player.potWater > 0
+          ? 'Open inventory with I and drink from the tin pot.'
+          : (demoProgress.waterCollected
+            ? (player.cleanWater > 0 ? 'Drink the clean water from inventory.' : 'Return to a lit fire and boil the raw water in your pot.')
+            : (weather.isRaining && !isSheltered(player.x, player.z)
+              ? 'Use Catch Rainwater to fill your tin pot, or find the pond.'
+              : targetHint('Pond', POND.x, POND.z) + ' · or catch rainfall in the tin pot'))
+      },
+      {
+        done: demoProgress.foodSecured,
+        title: demoProgress.foodForaged ? 'Cook and eat the mushroom' : 'Forage a mushroom',
+        hint: demoProgress.foodForaged
+          ? (player.cookedMush > 0 ? 'Eat the cooked food from the action list.' : 'Return to a lit fire and cook the mushroom.')
+          : nearestMushroomHint()
+      },
+      {
+        done: demoProgress.shelterBuilt && shelters.some(function (shelter) { return shelter.hasBed; }),
+        title: demoProgress.shelterBuilt ? 'Make a leaf bed' : 'Raise a lean-to shelter',
+        hint: demoProgress.shelterBuilt
+          ? (player.leaves >= LEAF_BED_COST ? 'Stand beneath the lean-to and build the leaf bed.' : 'Gather ' + (LEAF_BED_COST - player.leaves) + ' more dry leaves from forest-floor piles.')
+          : (player.wood >= SHELTER_COST ? 'Press G or use the shelter build button.' : 'Gather ' + (SHELTER_COST - player.wood) + ' more wood first.')
+      },
+      {
+        done: demoProgress.complete,
+        title: demoProgress.complete ? 'First night survived' : 'Hold camp until dawn',
+        hint: demoProgress.complete
+          ? 'Daylight has returned. Keep exploring and prepare for the next night.'
+          : (demoProgress.dawnAt === null ? 'Complete the camp plan first.' : 'Sleep in the lean-to or stay awake · dawn in ' + formatWorldDuration(demoProgress.dawnAt - worldMinutes))
+      }
+    ];
+
+    var prepDone = steps[0].done && steps[1].done && steps[2].done && steps[3].done && steps[4].done;
+    if (prepDone && demoProgress.dawnAt === null) {
+      demoProgress.dawnAt = nextDawnAfter(worldMinutes);
+      showToast('Camp secure — sleep or hold out until dawn');
+    }
+    if (demoProgress.dawnAt !== null && worldMinutes >= demoProgress.dawnAt && !demoProgress.complete) completeDemo();
+
+    var current = 0;
+    while (current < steps.length - 1 && steps[current].done) current++;
+    document.getElementById('objectiveKicker').textContent = (isNightTime() ? 'Night plan' : 'Day plan') + ' · step ' + (current + 1) + ' of ' + steps.length;
+    document.getElementById('objectiveTitle').textContent = steps[current].title;
+    document.getElementById('objectiveHint').textContent = steps[current].hint;
+    var track = document.getElementById('objectiveTrack');
+    track.innerHTML = '';
+    for (var i = 0; i < steps.length; i++) {
+      var dot = document.createElement('span');
+      dot.className = 'objectiveDot' + (steps[i].done ? ' done' : (i === current ? ' current' : ''));
+      track.appendChild(dot);
+    }
+  }
+
+  /* ===============================================================
+     ACTIONS
+  =============================================================== */
+  function pickBerries(spot) {
+    if (!spot || spot.collected) return;
+    var room = MAX_BERRIES - player.berries;
+    if (room <= 0) { showToast('Berry storage is full', true); return; }
+    var taken = Math.min(room, spot.yield);
+    player.berries += taken;
+    spot.yield -= taken;
+    if (spot.yield <= 0) {
+      spot.collected = true; spot.group.visible = false;
+      spot.respawnAt = elapsed + 24 + Math.random() * 20;
+    }
+    playForageSound('berry');
+    showToast('Picked ' + taken + ' berries · ' + player.berries + '/' + MAX_BERRIES + ' stored');
+  }
+  function eatStoredBerry() {
+    if (player.berries <= 0) return;
+    playEatingSound();
+    player.berries--;
+    player.hunger = Math.min(100, player.hunger + 16);
+    showToast('+16 hunger (stored berries)');
+  }
+  function forageMushroom(spot) {
+    playForageSound('mushroom');
+    spot.collected = true; spot.group.visible = false;
+    spot.respawnAt = elapsed + 30 + Math.random() * 26;
+    player.rawMush++;
+    demoProgress.foodForaged = true;
+    showToast('Foraged a mushroom');
+  }
+  function collectWater() {
+    if (player.rawWater >= 3) return;
+    player.rawWater++;
+    demoProgress.waterCollected = true;
+    showToast('Collected water from the pond');
+  }
+  function collectPebbles(spot) {
+    if (!spot || spot.collected) return;
+    spot.collected = true;
+    spot.group.visible = false;
+    player.pebbles += spot.count;
+    showToast('Picked up ' + spot.count + ' pebbles');
+  }
+  function collectLeaves(spot) {
+    if (!spot || spot.collected) return;
+    var room = MAX_LEAVES - player.leaves;
+    if (room <= 0) { showToast('Leaf bundle is full', true); return; }
+    var taken = Math.min(room, spot.count);
+    player.leaves += taken;
+    spot.count -= taken;
+    if (spot.count <= 0) {
+      spot.collected = true;
+      spot.group.visible = false;
+      spot.respawnAt = elapsed + 38 + Math.random() * 28;
+    }
+    playForageSound('leaves');
+    showToast('Gathered ' + taken + ' dry leaves · ' + player.leaves + '/' + MAX_LEAVES);
+  }
+  function collectKindling(deadfall) {
+    if (!deadfall || deadfall.collected) return;
+    var room = MAX_KINDLING - player.kindling;
+    if (room <= 0) { showToast('Kindling bundle is full', true); return; }
+    var taken = Math.min(room, deadfall.kindling);
+    player.kindling += taken;
+    deadfall.kindling -= taken;
+    if (deadfall.kindling <= 0) {
+      deadfall.collected = true;
+      deadfall.group.visible = false;
+    }
+    playForageSound('leaves');
+    showToast('Gathered ' + taken + ' dry kindling from the fallen tree');
+  }
+  function drinkRaw() {
+    if (player.rawWater <= 0) return;
+    playWaterDrinkSound();
+    player.rawWater--;
+    player.thirst = Math.min(100, player.thirst + 20);
+    if (Math.random() < 0.32) {
+      player.health -= 9;
+      showToast('That water was foul...', true);
+    } else {
+      showToast('+20 thirst (raw water)');
+    }
+  }
+  function drinkClean() {
+    if (player.cleanWater <= 0) return;
+    playWaterDrinkSound();
+    player.cleanWater--; player.thirst = Math.min(100, player.thirst + 42);
+    demoProgress.waterSecured = true;
+    showToast('+42 thirst (boiled water)');
+  }
+  function drinkPotWater() {
+    if (player.potWater <= 0) return;
+    playWaterDrinkSound();
+    player.potWater = 0;
+    player.thirst = Math.min(100, player.thirst + POT_DRINK_THIRST);
+    demoProgress.waterSecured = true;
+    showToast('+' + POT_DRINK_THIRST + ' thirst · tin pot emptied');
+  }
+  function startCatchRain() {
+    if (player.busy || player.potWater > 0) return;
+    if (!weather.isRaining) { showToast('Wait for rainfall to fill the pot', true); return; }
+    if (isSheltered(player.x, player.z)) { showToast('Step beyond the shelter roof first', true); return; }
+    var forwardX = Math.sin(player.yaw) * -1.15, forwardZ = Math.cos(player.yaw) * -1.15;
+    var potX = player.x + forwardX, potZ = player.z + forwardZ;
+    rainCatchPot.position.set(potX, getTerrainHeight(potX, potZ) + 0.03, potZ);
+    rainCatchPot.userData.contents.visible = true;
+    rainCatchPot.visible = true;
+    player.busy = {
+      type: 'rain-catch', label: 'Catching rainwater', total: RAIN_CATCH_TIME, remaining: RAIN_CATCH_TIME,
+      interruptMessage: 'Rain collection interrupted',
+      stayNear: function () {
+        var dx = rainCatchPot.position.x - player.x, dz = rainCatchPot.position.z - player.z;
+        return weather.isRaining && !isSheltered(player.x, player.z) && dx * dx + dz * dz < 6.25;
+      },
+      onCancel: function () { rainCatchPot.visible = false; },
+      onComplete: function () {
+        rainCatchPot.visible = false;
+        player.potWater = 1;
+        demoProgress.rainWaterCollected = true;
+        showToast('Tin pot filled · one small drink');
+      }
+    };
+  }
+  function eatRawMush() {
+    if (player.rawMush <= 0) return;
+    playEatingSound();
+    player.rawMush--; player.hunger = Math.min(100, player.hunger + 13);
+    if (Math.random() < 0.35) { player.health -= 11; showToast('That mushroom did not agree with you...', true); }
+    else showToast('+13 hunger (raw mushroom)');
+  }
+  function eatCookedMush() {
+    if (player.cookedMush <= 0) return;
+    playEatingSound();
+    player.cookedMush--; player.hunger = Math.min(100, player.hunger + 29);
+    demoProgress.foodSecured = true;
+    showToast('+29 hunger (cooked mushroom)');
+  }
+  function eatHeartyStew() {
+    if (player.stew <= 0) return;
+    playEatingSound();
+    player.stew--;
+    player.hunger = Math.min(100, player.hunger + 42);
+    player.thirst = Math.min(100, player.thirst + 8);
+    player.warmth = Math.min(100, player.warmth + 12);
+    player.health = Math.min(100, player.health + 5);
+    demoProgress.foodSecured = true;
+    showToast('Hot forest stew · hunger +42 · warmth +12');
+  }
+  function fellTree(tree) {
+    tree.chopped = true;
+    if (tree.instanced) {
+      var hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+      tree.trunks.setMatrixAt(tree.instanceIndex, hiddenMatrix);
+      tree.foliage.setMatrixAt(tree.instanceIndex, hiddenMatrix);
+      tree.foliageTop.setMatrixAt(tree.instanceIndex, hiddenMatrix);
+      tree.trunks.instanceMatrix.needsUpdate = true;
+      tree.foliage.instanceMatrix.needsUpdate = true;
+      tree.foliageTop.instanceMatrix.needsUpdate = true;
+      var backdropStumpGeo = new THREE.CylinderGeometry(0.22 * tree.scale, 0.26 * tree.scale, 0.35 * tree.scale, 6);
+      tree.stump = new THREE.Mesh(backdropStumpGeo, trunkMat);
+      tree.stump.position.set(tree.x, tree.h + 0.17 * tree.scale, tree.z);
+      scene.add(tree.stump);
+    } else {
+      tree.group.visible = false;
+      tree.stump.visible = true;
+    }
+    var gain = 4 + Math.floor(Math.random() * 2);
+    var stickGain = 3 + Math.floor(Math.random() * 2);
+    var kindlingGain = tree.kindlingYield && player.kindling < MAX_KINDLING ? 1 : 0;
+    player.wood += gain;
+    player.sticks += stickGain;
+    player.kindling += kindlingGain;
+    demoProgress.woodGathered += gain;
+    showToast('Tree felled! +' + gain + ' wood · +' + stickGain + ' sticks' + (kindlingGain ? ' · +1 kindling' : ' · no dry kindling'));
+  }
+  function applyChopStrike(tree) {
+    if (!tree || tree.chopped) return;
+    playChopSound();
+    tree.hp--;
+    if (tree.hp <= 0) fellTree(tree);
+  }
+  function chopTree(tree) {
+    if (!tree || tree.chopped || player.busy) return;
+    var strikeCount = tree.hp;
+    var totalDuration = 0.15 + Math.max(0, strikeCount - 1) * CHOP_STRIKE_INTERVAL + 0.2;
+    var chopTask = {
+      type: 'chop',
+      label: 'Chopping tree · ' + strikeCount + ' strikes',
+      total: totalDuration,
+      remaining: totalDuration,
+      strikeTimer: 0.15,
+      interruptMessage: 'Chopping interrupted',
+      stayNear: function () {
+        if (tree.chopped) return true;
+        var dx = tree.x - player.x, dz = tree.z - player.z;
+        return dx * dx + dz * dz <= (TREE_RANGE + 0.9) * (TREE_RANGE + 0.9);
+      },
+      onTick: function (delta) {
+        chopTask.strikeTimer -= delta;
+        while (chopTask.strikeTimer <= 0 && !tree.chopped) {
+          applyChopStrike(tree);
+          chopTask.strikeTimer += CHOP_STRIKE_INTERVAL;
+          chopTask.label = tree.chopped ? 'Tree felled' : 'Chopping tree · ' + tree.hp + ' strikes';
+        }
+      },
+      onComplete: function () {
+        if (!tree.chopped) applyChopStrike(tree);
+      }
+    };
+    player.busy = chopTask;
+  }
+  function restOnStump(tree) {
+    if (!tree || !tree.chopped || player.busy) return;
+    var dx = tree.x - player.x, dz = tree.z - player.z;
+    if (dx * dx + dz * dz > STUMP_RANGE * STUMP_RANGE) return;
+    showToast('You settle onto the stump and catch your breath');
+    player.busy = {
+      type: 'stump-rest',
+      label: 'Resting on stump',
+      total: STUMP_REST_TIME,
+      remaining: STUMP_REST_TIME,
+      interruptMessage: 'Rest interrupted',
+      stayNear: function () {
+        var restDx = tree.x - player.x, restDz = tree.z - player.z;
+        return tree.chopped && restDx * restDx + restDz * restDz <= (STUMP_RANGE + 0.5) * (STUMP_RANGE + 0.5);
+      },
+      onComplete: function () {
+        var recovery = player.hunger > 20 && player.thirst > 20 ? 5 : 0;
+        player.health = Math.min(100, player.health + recovery);
+        showToast(recovery ? 'Rested · vitality +' + recovery : 'Rested · eat and drink before you can recover vitality');
+      }
+    };
+  }
+  function lightFire(fire) {
+    if (!fire.prepared || fire.fuel <= 0) { showToast('Lay ' + FIRE_COST + ' firewood in the pit first', true); return; }
+    if (player.kindling < FIRE_KINDLING_COST) { showToast('Need dry kindling · search a fallen dead tree', true); return; }
+    player.kindling -= FIRE_KINDLING_COST;
+    fire.lit = true;
+    demoProgress.fireLit = true;
+    showToast('Kindling catches · fire lit');
+  }
+  function prepareFire(fire) {
+    if (!fire || fire.lit || fire.prepared) return;
+    if (player.wood < FIRE_COST) { showToast('Need ' + (FIRE_COST - player.wood) + ' more firewood', true); return; }
+    player.wood -= FIRE_COST;
+    fire.fuel = Math.min(100, fire.fuel + FIRE_COST * FIRE_FUEL_PER_WOOD);
+    setFirePrepared(fire, true);
+    showToast('Firewood laid · add dry kindling to light it');
+  }
+  function addWood(fire) {
+    if (player.wood <= 0) return;
+    player.wood--;
+    fire.fuel = Math.min(100, fire.fuel + FIRE_FUEL_PER_WOOD);
+    setFirePrepared(fire, true);
+    showToast('Added wood to the fire');
+  }
+  function craftSlingshot() {
+    if (player.hasSlingshot || player.sticks < SLINGSHOT_STICK_COST) return;
+    player.sticks -= SLINGSHOT_STICK_COST;
+    player.hasSlingshot = true;
+    document.getElementById('crosshair').style.display = 'block';
+    showToast('Slingshot crafted · collect pebbles and press R to fire');
+  }
+  function startBoil(fire) {
+    if (player.rawWater <= 0 || player.busy) return;
+    if (player.potWater > 0) { showToast('Drink the rainwater before using the pot', true); return; }
+    showFirePot(fire, 'boil');
+    player.busy = {
+      type: 'pot-boil', label: 'Boiling water in pot', total: BOIL_TIME, remaining: BOIL_TIME,
+      interruptMessage: 'Boiling interrupted',
+      stayNear: function () { var dx = fire.x - player.x, dz = fire.z - player.z; return fire.lit && (dx * dx + dz * dz) < FIRE_RANGE * FIRE_RANGE; },
+      onCancel: function () { showFirePot(fire, null); },
+      onComplete: function () { showFirePot(fire, null); player.rawWater--; player.cleanWater = Math.min(3, player.cleanWater + 1); showToast('Water boiled clean in the tin pot'); }
+    };
+  }
+  function startCook(fire) {
+    if (player.rawMush <= 0 || player.busy) return;
+    if (player.potWater > 0) { showToast('Drink the rainwater before using the pot', true); return; }
+    showFirePot(fire, 'cook');
+    playCookingSound();
+    player.busy = {
+      type: 'pot-cook', label: 'Cooking mushroom in pot', total: COOK_TIME, remaining: COOK_TIME,
+      interruptMessage: 'Cooking interrupted',
+      stayNear: function () { var dx = fire.x - player.x, dz = fire.z - player.z; return fire.lit && (dx * dx + dz * dz) < FIRE_RANGE * FIRE_RANGE; },
+      onCancel: function () { stopCookingSound(); showFirePot(fire, null); },
+      onComplete: function () { stopCookingSound(); showFirePot(fire, null); player.rawMush--; player.cookedMush++; showToast('Mushroom cooked in the tin pot'); }
+    };
+  }
+  function startStew(fire) {
+    if (player.rawMush <= 0 || player.berries < STEW_BERRY_COST || (player.cleanWater <= 0 && player.potWater <= 0) || player.busy) return;
+    var usePotWater = player.potWater > 0;
+    showFirePot(fire, 'stew');
+    playCookingSound();
+    player.busy = {
+      type: 'pot-stew', label: 'Simmering forest stew', total: STEW_TIME, remaining: STEW_TIME,
+      interruptMessage: 'Stew cooking interrupted',
+      stayNear: function () { var dx = fire.x - player.x, dz = fire.z - player.z; return fire.lit && (dx * dx + dz * dz) < FIRE_RANGE * FIRE_RANGE; },
+      onCancel: function () { stopCookingSound(); showFirePot(fire, null); },
+      onComplete: function () {
+        stopCookingSound();
+        showFirePot(fire, null);
+        player.rawMush--;
+        player.berries -= STEW_BERRY_COST;
+        if (usePotWater) player.potWater = Math.max(0, player.potWater - 1);
+        else player.cleanWater = Math.max(0, player.cleanWater - 1);
+        player.stew++;
+        showToast('Hearty forest stew ready · open inventory to eat');
+      }
+    };
+  }
+  function setSleepOverlay(active) {
+    document.getElementById('sleepOverlay').classList.toggle('active', active);
+    if (!active) setLookPromptVisible(!pointerLocked);
+  }
+  function startSleep() {
+    if (player.busy) return;
+    var shelter = isSheltered(player.x, player.z);
+    if (!shelter) { showToast('Get fully beneath the lean-to first', true); return; }
+    if (!shelter.hasBed) { showToast('Build a dry leaf bed before sleeping', true); return; }
+    var sleepingThroughNight = isNightTime();
+    var targetMinutes = sleepingThroughNight ? nextDawnAfter(worldMinutes) : worldMinutes + 120;
+    var duration = sleepingThroughNight ? SLEEP_NIGHT_SECONDS : SLEEP_REST_SECONDS;
+    var advance = targetMinutes - worldMinutes;
+    setSleepOverlay(true);
+    setLookPromptVisible(false);
+    if (document.exitPointerLock) document.exitPointerLock();
+    player.busy = {
+      type: 'sleep',
+      label: sleepingThroughNight ? 'Sleeping until dawn' : 'Resting for two hours',
+      total: duration,
+      remaining: duration,
+      sleepTarget: targetMinutes,
+      sleepBonusPerSecond: Math.max(0, advance / duration - GAME_MINUTES_PER_REAL_SECOND),
+      survivalScale: sleepingThroughNight ? 4 : 2.5,
+      interruptMessage: 'Sleep interrupted',
+      stayNear: function () { return isSheltered(player.x, player.z) === shelter && shelter.hasBed; },
+      onCancel: function () { setSleepOverlay(false); },
+      onComplete: function () {
+        worldMinutes = targetMinutes;
+        setSleepOverlay(false);
+        if (isNearLitFire(player.x, player.z, FIRE_SAFE_RADIUS)) player.warmth = Math.min(100, player.warmth + 14);
+        if (player.hunger > 20 && player.thirst > 20) player.health = Math.min(100, player.health + 7);
+        showToast('Rested · woke at ' + formatWorldTime(worldMinutes));
+      }
+    };
+  }
+  function buildFirePit() {
+    if (player.pebbles < FIRE_PIT_PEBBLE_COST || fires.length >= MAX_FIRES) return;
+    player.pebbles -= FIRE_PIT_PEBBLE_COST;
+    var fx = player.x + Math.sin(player.yaw) * 2.4 * -1, fz = player.z + Math.cos(player.yaw) * 2.4 * -1;
+    var fh = getTerrainHeight(fx, fz);
+    fires.push(createFire(fx, fz, fh));
+    demoProgress.fireBuilt = true;
+    showToast('Stone fire pit built · lay in ' + FIRE_COST + ' firewood');
+  }
+  function buildShelter() {
+    if (player.wood < SHELTER_COST || shelters.length >= MAX_SHELTERS) return null;
+    player.wood -= SHELTER_COST;
+    var sx = player.x + Math.sin(player.yaw) * 2.6 * -1, sz = player.z + Math.cos(player.yaw) * 2.6 * -1;
+    var sh = getTerrainHeight(sx, sz);
+    var mesh = buildShelterMesh();
+    mesh.position.set(sx, sh, sz);
+    mesh.rotation.y = player.yaw;
+    scene.add(mesh);
+    var shelter = {
+      x: sx, z: sz, yaw: player.yaw, mesh: mesh,
+      hasBed: false,
+      bedMesh: mesh.userData.leafBed,
+      insulated: false,
+      insulationMesh: mesh.userData.insulation,
+      halfWidth: SHELTER_HALF_WIDTH,
+      rearDepth: SHELTER_REAR_DEPTH,
+      frontDepth: SHELTER_FRONT_DEPTH
+    };
+    shelters.push(shelter);
+    demoProgress.shelterBuilt = true;
+    showToast('Lean-to raised — gather leaves for a bed');
+    return shelter;
+  }
+  function buildLeafBed(shelter) {
+    if (!shelter || shelter.hasBed) return;
+    if (player.leaves < LEAF_BED_COST) {
+      showToast('Need ' + (LEAF_BED_COST - player.leaves) + ' more dry leaves', true);
+      return;
+    }
+    player.leaves -= LEAF_BED_COST;
+    shelter.hasBed = true;
+    shelter.bedMesh.visible = true;
+    playForageSound('leaves');
+    showToast('Leaf bed built · this shelter is ready for sleep');
+  }
+  function insulateShelter(shelter) {
+    if (!shelter || shelter.insulated) return;
+    if (player.sticks < SHELTER_INSULATION_STICKS || player.leaves < SHELTER_INSULATION_LEAVES) {
+      showToast('Need ' + SHELTER_INSULATION_STICKS + ' sticks and ' + SHELTER_INSULATION_LEAVES + ' leaves', true);
+      return;
+    }
+    player.sticks -= SHELTER_INSULATION_STICKS;
+    player.leaves -= SHELTER_INSULATION_LEAVES;
+    shelter.insulated = true;
+    shelter.insulationMesh.visible = true;
+    playForageSound('leaves');
+    document.getElementById('shelterZoneTag').textContent = 'INSULATED SHELTER · DRYING';
+    showToast('Lean-to insulated · stronger warmth and drying');
+  }
+
+  function debugPrepareAndLightFire() {
+    if (!DEBUG_DEMO) return null;
+    if (!fires.length) {
+      player.pebbles = Math.max(player.pebbles, FIRE_PIT_PEBBLE_COST);
+      buildFirePit();
+    }
+    var fire = fires[fires.length - 1];
+    if (!fire.prepared) {
+      player.wood = Math.max(player.wood, FIRE_COST);
+      prepareFire(fire);
+    }
+    if (!fire.lit) {
+      player.kindling = Math.max(player.kindling, FIRE_KINDLING_COST);
+      lightFire(fire);
+    }
+    return fire;
+  }
+
+  function debugAdvanceDemo() {
+    if (!DEBUG_DEMO || !running) return;
+    if (demoProgress.woodGathered < FIRE_COST) {
+      demoProgress.woodGathered = FIRE_COST;
+      player.wood = Math.max(player.wood, FIRE_COST);
+      showToast('TEST · wood gathered');
+    } else if (!demoProgress.fireBuilt || !demoProgress.fireLit) {
+      debugPrepareAndLightFire();
+    } else if (!demoProgress.waterSecured) {
+      demoProgress.waterCollected = true;
+      player.cleanWater = 1;
+      drinkClean();
+    } else if (!demoProgress.foodSecured) {
+      demoProgress.foodForaged = true;
+      player.cookedMush = 1;
+      eatCookedMush();
+    } else if (!demoProgress.shelterBuilt) {
+      player.wood = Math.max(player.wood, SHELTER_COST);
+      buildShelter();
+    } else if (!shelters.some(function (shelter) { return shelter.hasBed; })) {
+      player.leaves = Math.max(player.leaves, LEAF_BED_COST);
+      buildLeafBed(shelters[shelters.length - 1]);
+    } else {
+      demoProgress.dawnAt = worldMinutes - 1;
+      updateDemoObjective();
+    }
+    updateDemoObjective();
+  }
+
+  /* ===============================================================
+     INPUT: desktop
+  =============================================================== */
+  var keys = {};
+  var pointerLocked = false;
+  var inventoryOpen = false;
+  var hintsEnabled = true;
+  var animalAttacksEnabled = true;
+  var dragLooking = false, dragMoved = false, dragLastX = 0, dragLastY = 0;
+  var canvas = renderer.domElement;
+  var currentActions = [];
+  var lookPrompt = document.getElementById('lookPrompt');
+
+  try {
+    var storedHints = localStorage.getItem('wildwood_hints_v1');
+    if (storedHints !== null) hintsEnabled = storedHints !== 'false';
+    var storedAnimalAttacks = localStorage.getItem('wildwood_animal_attacks_v1');
+    if (storedAnimalAttacks !== null) animalAttacksEnabled = storedAnimalAttacks !== 'false';
+  } catch (e) {}
+
+  function applyHintsPreference(showFeedback) {
+    var objectivePanel = document.getElementById('objectivePanel');
+    var inGameButton = document.getElementById('hintsToggle');
+    var startButton = document.getElementById('startHintsBtn');
+    objectivePanel.style.display = hintsEnabled ? 'block' : 'none';
+    inGameButton.textContent = hintsEnabled ? 'HINTS ON [H]' : 'HINTS OFF [H]';
+    inGameButton.classList.toggle('off', !hintsEnabled);
+    inGameButton.setAttribute('aria-pressed', hintsEnabled ? 'true' : 'false');
+    startButton.textContent = hintsEnabled ? 'HINTS: ON' : 'HINTS: OFF';
+    startButton.setAttribute('aria-pressed', hintsEnabled ? 'true' : 'false');
+    try { localStorage.setItem('wildwood_hints_v1', hintsEnabled ? 'true' : 'false'); } catch (e) {}
+    if (showFeedback && running) showToast(hintsEnabled ? 'Guided survival hints enabled' : 'Hints hidden · press H to restore them');
+  }
+  function toggleHints() {
+    hintsEnabled = !hintsEnabled;
+    applyHintsPreference(true);
+  }
+  applyHintsPreference(false);
+
+  function applyAnimalAttacksPreference(showFeedback) {
+    var inGameButton = document.getElementById('attacksToggle');
+    var startButton = document.getElementById('startAttacksBtn');
+    inGameButton.textContent = animalAttacksEnabled ? 'ATTACKS ON [J]' : 'ATTACKS OFF [J]';
+    inGameButton.classList.toggle('off', !animalAttacksEnabled);
+    inGameButton.setAttribute('aria-pressed', animalAttacksEnabled ? 'true' : 'false');
+    startButton.textContent = animalAttacksEnabled ? 'ANIMAL ATTACKS: ON' : 'ANIMAL ATTACKS: OFF';
+    startButton.classList.toggle('off', !animalAttacksEnabled);
+    startButton.setAttribute('aria-pressed', animalAttacksEnabled ? 'true' : 'false');
+    if (!animalAttacksEnabled) {
+      fireSafeActive = false;
+      document.getElementById('safeZoneTag').style.display = 'none';
+    }
+    try { localStorage.setItem('wildwood_animal_attacks_v1', animalAttacksEnabled ? 'true' : 'false'); } catch (e) {}
+    if (showFeedback && running) showToast(animalAttacksEnabled ? 'Animal attacks enabled' : 'Animal attacks disabled · wildlife remains passive');
+  }
+  function toggleAnimalAttacks() {
+    animalAttacksEnabled = !animalAttacksEnabled;
+    applyAnimalAttacksPreference(true);
+  }
+  applyAnimalAttacksPreference(false);
+
+  function setLookPromptVisible(visible) {
+    lookPrompt.style.display = (!isMobile && running && !inventoryOpen && visible) ? 'block' : 'none';
+  }
+
+  function toggleInventory(forceOpen) {
+    if (!running) return;
+    inventoryOpen = typeof forceOpen === 'boolean' ? forceOpen : !inventoryOpen;
+    var drawer = document.getElementById('inventoryDrawer');
+    var backdrop = document.getElementById('inventoryBackdrop');
+    drawer.classList.toggle('open', inventoryOpen);
+    drawer.setAttribute('aria-hidden', inventoryOpen ? 'false' : 'true');
+    backdrop.classList.toggle('open', inventoryOpen);
+    backdrop.setAttribute('aria-hidden', inventoryOpen ? 'false' : 'true');
+    if (inventoryOpen) {
+      keys = {};
+      if (document.exitPointerLock) document.exitPointerLock();
+      setLookPromptVisible(false);
+    } else {
+      setLookPromptVisible(!pointerLocked);
+    }
+  }
+
+  function applyLookDelta(dx, dy) {
+    player.yaw -= dx * MOUSE_SENS;
+    player.pitch -= dy * MOUSE_SENS;
+    player.pitch = Math.max(-1.35, Math.min(1.35, player.pitch));
+  }
+
+  function requestPointerLockSafe() {
+    if (isMobile || DEBUG_DEMO || !canvas.requestPointerLock) return;
+    try {
+      var request = canvas.requestPointerLock();
+      if (request && request.catch) request.catch(function () { setLookPromptVisible(true); });
+    } catch (e) { setLookPromptVisible(true); }
+  }
+
+  if (!isMobile) {
+    document.addEventListener('keydown', function (e) {
+      keys[e.code] = true;
+      if (!running) return;
+      if (e.code === 'Space' || e.code.indexOf('Arrow') === 0) e.preventDefault();
+      if (e.code === 'KeyI') { keys[e.code] = false; toggleInventory(); return; }
+      if (e.code === 'KeyH') { keys[e.code] = false; toggleHints(); return; }
+      if (e.code === 'KeyJ') { keys[e.code] = false; toggleAnimalAttacks(); return; }
+      if (inventoryOpen) return;
+      if (DEBUG_DEMO && e.code === 'KeyB') { debugAdvanceDemo(); return; }
+      if (e.code === 'KeyE') { if (currentActions[0]) currentActions[0].run(); }
+      if (e.code === 'Digit1') { if (currentActions[0]) currentActions[0].run(); }
+      if (e.code === 'Digit2') { if (currentActions[1]) currentActions[1].run(); }
+      if (e.code === 'Digit3') { if (currentActions[2]) currentActions[2].run(); }
+      if (e.code === 'Digit4') { if (currentActions[3]) currentActions[3].run(); }
+      if (e.code === 'KeyF') buildFirePit();
+      if (e.code === 'KeyG') buildShelter();
+      if (e.code === 'KeyR') shootSlingshot();
+      if (e.code === 'KeyL') toggleFlashlight();
+    });
+    document.addEventListener('keyup', function (e) {
+      keys[e.code] = false;
+      if (running && (e.code === 'Space' || e.code.indexOf('Arrow') === 0)) e.preventDefault();
+    });
+    document.addEventListener('mousemove', function (e) {
+      if (!pointerLocked) return;
+      applyLookDelta(e.movementX, e.movementY);
+    });
+    document.addEventListener('wheel', function (e) {
+      if (!running || inventoryOpen || e.ctrlKey) return;
+      e.preventDefault();
+      var deltaScale = e.deltaMode === 1 ? 16 : (e.deltaMode === 2 ? window.innerHeight : 1);
+      player.yaw += e.deltaX * deltaScale * TRACKPAD_LOOK_SENS;
+      player.pitch += e.deltaY * deltaScale * TRACKPAD_LOOK_SENS;
+      player.pitch = Math.max(-1.35, Math.min(1.35, player.pitch));
+    }, { passive: false });
+    document.addEventListener('pointerlockchange', function () {
+      pointerLocked = (document.pointerLockElement === canvas);
+      dragLooking = false;
+      document.getElementById('crosshair').style.display = (pointerLocked || player.hasSlingshot) ? 'block' : 'none';
+      setLookPromptVisible(!pointerLocked);
+    });
+    document.addEventListener('pointerlockerror', function () { setLookPromptVisible(true); });
+    canvas.addEventListener('pointerdown', function (e) {
+      if (!running || inventoryOpen || pointerLocked || e.pointerType === 'touch' || e.button !== 0) return;
+      dragLooking = true; dragMoved = false; dragLastX = e.clientX; dragLastY = e.clientY;
+      try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+    });
+    canvas.addEventListener('pointermove', function (e) {
+      if (!dragLooking || pointerLocked) return;
+      var dx = e.clientX - dragLastX, dy = e.clientY - dragLastY;
+      if (Math.abs(dx) + Math.abs(dy) > 1) dragMoved = true;
+      applyLookDelta(dx, dy);
+      dragLastX = e.clientX; dragLastY = e.clientY;
+    });
+    function stopDragLook() { dragLooking = false; }
+    canvas.addEventListener('pointerup', stopDragLook);
+    canvas.addEventListener('pointercancel', stopDragLook);
+    canvas.addEventListener('lostpointercapture', stopDragLook);
+    canvas.addEventListener('click', function () {
+      if (running && !pointerLocked && !dragMoved) requestPointerLockSafe();
+    });
+  }
+
+  /* ===============================================================
+     INPUT: mobile touch joystick + look
+  =============================================================== */
+  var joyVec = { x: 0, y: 0 };
+  var joyTouchId = null, lookTouchId = null, lookLast = { x: 0, y: 0 };
+
+  if (isMobile) {
+    document.getElementById('joystickZone').style.display = 'block';
+    document.getElementById('lookZone').style.display = 'block';
+    var joyZone = document.getElementById('joystickZone');
+    var joyKnob = document.getElementById('joyKnob');
+    var joyBaseRect = null;
+
+    function joyStart(t) { joyTouchId = t.identifier; joyBaseRect = document.getElementById('joyBase').getBoundingClientRect(); }
+    function joyMove(t) {
+      if (!joyBaseRect) return;
+      var cx = joyBaseRect.left + joyBaseRect.width / 2, cy = joyBaseRect.top + joyBaseRect.height / 2;
+      var dx = t.clientX - cx, dy = t.clientY - cy, maxR = joyBaseRect.width / 2;
+      var dist = Math.min(maxR, Math.sqrt(dx * dx + dy * dy)), ang = Math.atan2(dy, dx);
+      var nx = Math.cos(ang) * dist, ny = Math.sin(ang) * dist;
+      joyKnob.style.transform = 'translate(' + (29 + nx) + 'px,' + (-29 + ny) + 'px)';
+      joyVec.x = nx / maxR; joyVec.y = ny / maxR;
+    }
+    function joyEnd() { joyTouchId = null; joyVec.x = 0; joyVec.y = 0; joyKnob.style.transform = 'translate(29px,-29px)'; }
+    joyZone.addEventListener('touchstart', function (e) { joyStart(e.changedTouches[0]); e.preventDefault(); }, { passive: false });
+    joyZone.addEventListener('touchmove', function (e) {
+      for (var i = 0; i < e.changedTouches.length; i++) { var t = e.changedTouches[i]; if (t.identifier === joyTouchId) joyMove(t); }
+      e.preventDefault();
+    }, { passive: false });
+    joyZone.addEventListener('touchend', function (e) {
+      for (var i = 0; i < e.changedTouches.length; i++) if (e.changedTouches[i].identifier === joyTouchId) joyEnd();
+    }, { passive: false });
+    joyZone.addEventListener('touchcancel', joyEnd, { passive: false });
+
+    var lookZone = document.getElementById('lookZone');
+    lookZone.addEventListener('touchstart', function (e) {
+      for (var i = 0; i < e.changedTouches.length; i++) {
+        var t = e.changedTouches[i];
+        if (t.clientX < window.innerWidth * 0.42 && t.clientY > window.innerHeight * 0.5) continue;
+        if (lookTouchId === null) { lookTouchId = t.identifier; lookLast.x = t.clientX; lookLast.y = t.clientY; }
+      }
+    }, { passive: false });
+    lookZone.addEventListener('touchmove', function (e) {
+      for (var i = 0; i < e.changedTouches.length; i++) {
+        var t = e.changedTouches[i];
+        if (t.identifier === lookTouchId) {
+          var dx = t.clientX - lookLast.x, dy = t.clientY - lookLast.y;
+          player.yaw -= dx * TOUCH_LOOK_SENS; player.pitch -= dy * TOUCH_LOOK_SENS;
+          player.pitch = Math.max(-1.35, Math.min(1.35, player.pitch));
+          lookLast.x = t.clientX; lookLast.y = t.clientY;
+        }
+      }
+      e.preventDefault();
+    }, { passive: false });
+    lookZone.addEventListener('touchend', function (e) {
+      for (var i = 0; i < e.changedTouches.length; i++) if (e.changedTouches[i].identifier === lookTouchId) lookTouchId = null;
+    }, { passive: false });
+  }
+
+  document.getElementById('buildFireBtn').addEventListener('click', buildFirePit);
+  document.getElementById('buildShelterBtn').addEventListener('click', buildShelter);
+  document.getElementById('craftSlingshotBtn').addEventListener('click', craftSlingshot);
+  document.getElementById('inventoryToggle').addEventListener('click', function () { toggleInventory(); });
+  document.getElementById('inventoryBackdrop').addEventListener('pointerdown', function (e) {
+    e.preventDefault();
+    toggleInventory(false);
+  });
+  document.getElementById('hintsToggle').addEventListener('click', toggleHints);
+  document.getElementById('startHintsBtn').addEventListener('click', toggleHints);
+  document.getElementById('attacksToggle').addEventListener('click', toggleAnimalAttacks);
+  document.getElementById('startAttacksBtn').addEventListener('click', toggleAnimalAttacks);
+  document.getElementById('eatBerryBtn').addEventListener('click', eatStoredBerry);
+  document.getElementById('eatCookedBtn').addEventListener('click', eatCookedMush);
+  document.getElementById('eatStewBtn').addEventListener('click', eatHeartyStew);
+  document.getElementById('drinkCleanBtn').addEventListener('click', drinkClean);
+  document.getElementById('drinkPotBtn').addEventListener('click', drinkPotWater);
+  document.getElementById('eatRawBtn').addEventListener('click', eatRawMush);
+  document.getElementById('drinkRawBtn').addEventListener('click', drinkRaw);
+
+  /* ===============================================================
+     ACTION PANEL RENDERING
+  =============================================================== */
+  var actionPanelEl = document.getElementById('actionPanel');
+  function rebuildActionList() {
+    var list = [];
+    var activeShelter = isSheltered(player.x, player.z);
+    if (activeShelter) {
+      if (activeShelter.hasBed) {
+        list.push({
+          label: isNightTime() ? 'Sleep Until Dawn (' + SLEEP_NIGHT_SECONDS + 's)' : 'Rest 2 Hours (' + SLEEP_REST_SECONDS + 's)',
+          run: startSleep
+        });
+      } else {
+        list.push({
+          label: player.leaves >= LEAF_BED_COST ? 'Build Leaf Bed (' + LEAF_BED_COST + ' leaves)' : 'Leaf Bed Needs ' + (LEAF_BED_COST - player.leaves) + ' Leaves',
+          run: function () { buildLeafBed(activeShelter); }
+        });
+      }
+      if (activeShelter.hasBed && !activeShelter.insulated) {
+        var insulationReady = player.sticks >= SHELTER_INSULATION_STICKS && player.leaves >= SHELTER_INSULATION_LEAVES;
+        list.push({
+          label: insulationReady ? 'Insulate Lean-To (4 sticks + 4 leaves)' : 'Insulation Needs 4 Sticks + 4 Leaves',
+          run: function () { insulateShelter(activeShelter); }
+        });
+      }
+    }
+    var nearestStump = null, bestStumpDistance = STUMP_RANGE * STUMP_RANGE;
+    for (var stumpIndex = 0; stumpIndex < trees.length; stumpIndex++) {
+      var stumpTree = trees[stumpIndex];
+      if (!stumpTree.chopped) continue;
+      var stumpDx = stumpTree.x - player.x, stumpDz = stumpTree.z - player.z;
+      var stumpDistance = stumpDx * stumpDx + stumpDz * stumpDz;
+      if (stumpDistance < bestStumpDistance) { bestStumpDistance = stumpDistance; nearestStump = stumpTree; }
+    }
+    if (nearestStump) list.push({ label: 'Sit & Rest on Stump (' + STUMP_REST_TIME + 's)', run: function () { restOnStump(nearestStump); } });
+    if (weather.isRaining && player.potWater <= 0 && !isSheltered(player.x, player.z)) {
+      list.push({ label: 'Catch Rainwater in Pot (' + RAIN_CATCH_TIME + 's)', run: startCatchRain });
+    }
+    var nearestDeadfall = null, bestDeadfallDistance = DEADFALL_RANGE * DEADFALL_RANGE;
+    for (var deadfallIndex = 0; deadfallIndex < deadfalls.length; deadfallIndex++) {
+      var deadfall = deadfalls[deadfallIndex];
+      if (deadfall.collected) continue;
+      var deadfallDx = deadfall.x - player.x, deadfallDz = deadfall.z - player.z;
+      var deadfallDistance = deadfallDx * deadfallDx + deadfallDz * deadfallDz;
+      if (deadfallDistance < bestDeadfallDistance) { bestDeadfallDistance = deadfallDistance; nearestDeadfall = deadfall; }
+    }
+    if (nearestDeadfall) list.push({ label: 'Gather Kindling (+' + nearestDeadfall.kindling + ')', run: function () { collectKindling(nearestDeadfall); } });
+    var nearestLeaves = null, bestLeafDistance = LEAF_RANGE * LEAF_RANGE;
+    for (var leafIndex = 0; leafIndex < leafSpots.length; leafIndex++) {
+      var leafSpot = leafSpots[leafIndex];
+      if (leafSpot.collected) continue;
+      var leafDx = leafSpot.x - player.x, leafDz = leafSpot.z - player.z;
+      var leafDistance = leafDx * leafDx + leafDz * leafDz;
+      if (leafDistance < bestLeafDistance) { bestLeafDistance = leafDistance; nearestLeaves = leafSpot; }
+    }
+    if (nearestLeaves) list.push({ label: 'Gather Dry Leaves (+' + nearestLeaves.count + ')', run: function () { collectLeaves(nearestLeaves); } });
+    var nearestTree = null, bestTreeD = TREE_RANGE * TREE_RANGE;
+    for (var i = 0; i < trees.length; i++) {
+      var tr = trees[i]; if (tr.chopped) continue;
+      var dx = tr.x - player.x, dz = tr.z - player.z, d2 = dx * dx + dz * dz;
+      if (d2 < bestTreeD) { bestTreeD = d2; nearestTree = tr; }
+    }
+    if (nearestTree) list.push({ label: 'Chop Tree (' + nearestTree.hp + ')', run: function () { chopTree(nearestTree); } });
+
+    var nearestBerry = null, bestBerryD = BERRY_RANGE * BERRY_RANGE;
+    for (var b = 0; b < forageSpots.length; b++) {
+      var berrySpot = forageSpots[b]; if (berrySpot.type !== 'berry' || berrySpot.collected) continue;
+      var berryDx = berrySpot.x - player.x, berryDz = berrySpot.z - player.z;
+      var berryD2 = berryDx * berryDx + berryDz * berryDz;
+      if (berryD2 < bestBerryD) { bestBerryD = berryD2; nearestBerry = berrySpot; }
+    }
+    if (nearestBerry) list.push({ label: 'Pick Berries (+' + nearestBerry.yield + ')', run: function () { pickBerries(nearestBerry); } });
+
+    var nearestMush = null, bestMushD = MUSH_RANGE * MUSH_RANGE;
+    for (var m = 0; m < forageSpots.length; m++) {
+      var sp = forageSpots[m]; if (sp.type !== 'mushroom' || sp.collected) continue;
+      var dx2 = sp.x - player.x, dz2 = sp.z - player.z, d3 = dx2 * dx2 + dz2 * dz2;
+      if (d3 < bestMushD) { bestMushD = d3; nearestMush = sp; }
+    }
+    if (nearestMush) list.push({ label: 'Forage Mushroom', run: function () { forageMushroom(nearestMush); } });
+
+    var nearestPebbles = null, bestPebbleD = PEBBLE_RANGE * PEBBLE_RANGE;
+    for (var p = 0; p < pebbleSpots.length; p++) {
+      var pebbleSpot = pebbleSpots[p]; if (pebbleSpot.collected) continue;
+      var pebbleDx = pebbleSpot.x - player.x, pebbleDz = pebbleSpot.z - player.z;
+      var pebbleD2 = pebbleDx * pebbleDx + pebbleDz * pebbleDz;
+      if (pebbleD2 < bestPebbleD) { bestPebbleD = pebbleD2; nearestPebbles = pebbleSpot; }
+    }
+    if (nearestPebbles) list.push({ label: 'Pick Up Pebbles (+' + nearestPebbles.count + ')', run: function () { collectPebbles(nearestPebbles); } });
+
+    var pdx = POND.x - player.x, pdz = POND.z - player.z;
+    if (pdx * pdx + pdz * pdz < POND_RANGE * POND_RANGE) {
+      if (player.rawWater < 3) list.push({ label: 'Collect Water (' + player.rawWater + '/3)', run: collectWater });
+    }
+
+    var fire = nearestFire(player.x, player.z, FIRE_RANGE);
+    if (fire) {
+      var fireActions = [];
+      if (!fire.lit) {
+        if (!fire.prepared) {
+          fireActions.push({
+            label: player.wood >= FIRE_COST ? 'Lay Firewood (' + FIRE_COST + ' wood)' : 'Fire Pit Needs ' + (FIRE_COST - player.wood) + ' More Wood',
+            run: function () { prepareFire(fire); }
+          });
+        } else {
+          fireActions.push({
+            label: player.kindling >= FIRE_KINDLING_COST ? 'Light Fire (1 kindling)' : 'Need Dry Kindling to Light',
+            run: function () { lightFire(fire); }
+          });
+        }
+      } else {
+        if (player.rawMush > 0 && player.berries >= STEW_BERRY_COST && (player.cleanWater > 0 || player.potWater > 0)) {
+          fireActions.push({ label: 'Cook Hearty Stew (' + STEW_TIME + 's)', run: function () { startStew(fire); } });
+        }
+        if (player.rawWater > 0) fireActions.push({ label: 'Boil Water in Pot (' + BOIL_TIME.toFixed(0) + 's)', run: function () { startBoil(fire); } });
+        if (player.rawMush > 0) fireActions.push({ label: 'Cook Mushroom in Pot (' + COOK_TIME.toFixed(0) + 's)', run: function () { startCook(fire); } });
+      }
+      if (player.wood > 0 && fire.prepared) fireActions.push({ label: 'Add Wood to Fire', run: function () { addWood(fire); } });
+      list = fireActions.concat(list);
+    }
+
+    currentActions = list.slice(0, 6);
+
+    actionPanelEl.innerHTML = '';
+    for (var a = 0; a < currentActions.length; a++) {
+      (function (act) {
+        var btn = document.createElement('button');
+        btn.className = 'actBtn' + (act.risky ? ' risky' : '');
+        btn.textContent = act.label;
+        btn.addEventListener('click', act.run);
+        actionPanelEl.appendChild(btn);
+      })(currentActions[a]);
+    }
+  }
+
+  /* ===============================================================
+     START / RESTART FLOW
+  =============================================================== */
+  var running = false, lastFrame = performance.now();
+  document.getElementById('startBtn').addEventListener('click', function () {
+    document.getElementById('startOverlay').style.display = 'none';
+    initAudio();
+    requestPointerLockSafe();
+    spawnPlayer();
+    resetDemoProgress();
+    elapsed = 0; survivalStart = 0; worldMinutes = START_WORLD_MINUTES;
+    running = true; lastFrame = performance.now();
+    applyHintsPreference(false);
+    applyAnimalAttacksPreference(false);
+    setLookPromptVisible(!pointerLocked);
+  });
+  document.getElementById('restartBtn').addEventListener('click', function () {
+    window.location.reload();
+  });
+
+  function formatTime(s) { s = Math.max(0, Math.floor(s)); var m = Math.floor(s / 60), sec = s % 60; return m + ':' + (sec < 10 ? '0' : '') + sec; }
+  function gameOver(cause) {
+    running = false; heartbeatActive = false;
+    if (player.busy && player.busy.onCancel) player.busy.onCancel();
+    player.busy = null;
+    setSleepOverlay(false);
+    stopCookingSound();
+    forestLoopAudio.volume = Math.min(forestLoopAudio.volume, 0.08);
+    campfireLoopAudio.volume = Math.min(campfireLoopAudio.volume, 0.06);
+    playDeathSound();
+    var survived = elapsed - survivalStart;
+    if (survived > bestTime) { bestTime = survived; try { localStorage.setItem('wildwood_best_v2', String(bestTime)); } catch (e) {} }
+    document.getElementById('deathTitle').textContent = cause;
+    document.getElementById('survivalSummary').textContent = 'You lasted ' + formatTime(survived) + ' in the woods. Best so far: ' + formatTime(bestTime) + '.';
+    document.getElementById('gameOverOverlay').classList.remove('success');
+    document.getElementById('restartBtn').textContent = 'TRY AGAIN';
+    document.getElementById('gameOverOverlay').style.display = 'flex';
+    document.getElementById('crosshair').style.display = 'none';
+  }
+
+  function completeDemo() {
+    demoProgress.complete = true;
+    showToast('Dawn breaks · you survived the first night');
+  }
+
+  /* ===============================================================
+     LOCAL MINIMAP
+  =============================================================== */
+  var MINIMAP_WORLD_RADIUS = 60;
+  var minimapCanvas = document.getElementById('minimapCanvas');
+  var minimapCtx = minimapCanvas.getContext('2d');
+  function compassDirectionFromDelta(dx, dz) {
+    var directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    var angle = Math.atan2(dx, -dz);
+    return directions[(Math.round(angle / (Math.PI / 4)) + 8) % 8];
+  }
+  function renderMinimap() {
+    var width = minimapCanvas.width, height = minimapCanvas.height;
+    var centerX = width / 2, centerY = height / 2;
+    var mapRadius = Math.min(width, height) / 2 - 12;
+    var scale = mapRadius / MINIMAP_WORLD_RADIUS;
+    minimapCtx.clearRect(0, 0, width, height);
+    minimapCtx.fillStyle = 'rgba(1,10,14,0.94)';
+    minimapCtx.fillRect(0, 0, width, height);
+
+    minimapCtx.save();
+    minimapCtx.beginPath();
+    minimapCtx.rect(5, 5, width - 10, height - 10);
+    minimapCtx.clip();
+
+    minimapCtx.strokeStyle = 'rgba(0,212,255,0.12)';
+    minimapCtx.lineWidth = 1;
+    for (var ringDistance = 20; ringDistance <= 60; ringDistance += 20) {
+      minimapCtx.beginPath();
+      minimapCtx.arc(centerX, centerY, ringDistance * scale, 0, Math.PI * 2);
+      minimapCtx.stroke();
+    }
+    minimapCtx.beginPath();
+    minimapCtx.moveTo(centerX, 6); minimapCtx.lineTo(centerX, height - 6);
+    minimapCtx.moveTo(6, centerY); minimapCtx.lineTo(width - 6, centerY);
+    minimapCtx.stroke();
+
+    for (var treeIndex = 0; treeIndex < trees.length; treeIndex++) {
+      var mapTree = trees[treeIndex];
+      if (mapTree.chopped) continue;
+      var treeDx = mapTree.x - player.x, treeDz = mapTree.z - player.z;
+      if (treeDx * treeDx + treeDz * treeDz > MINIMAP_WORLD_RADIUS * MINIMAP_WORLD_RADIUS) continue;
+      minimapCtx.fillStyle = 'rgba(71,137,75,0.48)';
+      minimapCtx.fillRect(centerX + treeDx * scale - 1, centerY + treeDz * scale - 1, 2, 2);
+    }
+
+    var campDx = -player.x, campDz = -player.z;
+    if (campDx * campDx + campDz * campDz <= MINIMAP_WORLD_RADIUS * MINIMAP_WORLD_RADIUS) {
+      minimapCtx.strokeStyle = '#e8c250';
+      minimapCtx.lineWidth = 1.5;
+      minimapCtx.strokeRect(centerX + campDx * scale - 3, centerY + campDz * scale - 3, 6, 6);
+    }
+
+    var pondDx = POND.x - player.x, pondDz = POND.z - player.z;
+    var pondDistance = Math.sqrt(pondDx * pondDx + pondDz * pondDz) || 0.001;
+    var pondMapX, pondMapY;
+    minimapCtx.fillStyle = 'rgba(72,184,230,0.78)';
+    minimapCtx.strokeStyle = '#76ddff';
+    minimapCtx.lineWidth = 1.5;
+    if (pondDistance <= MINIMAP_WORLD_RADIUS + POND.r) {
+      pondMapX = centerX + pondDx * scale;
+      pondMapY = centerY + pondDz * scale;
+      minimapCtx.beginPath();
+      minimapCtx.arc(pondMapX, pondMapY, Math.max(4, POND.r * scale), 0, Math.PI * 2);
+      minimapCtx.fill();
+      minimapCtx.stroke();
+    } else {
+      var edgeDistance = MINIMAP_WORLD_RADIUS - 5;
+      pondMapX = centerX + pondDx / pondDistance * edgeDistance * scale;
+      pondMapY = centerY + pondDz / pondDistance * edgeDistance * scale;
+      minimapCtx.beginPath();
+      minimapCtx.moveTo(pondMapX, pondMapY - 5);
+      minimapCtx.lineTo(pondMapX + 5, pondMapY);
+      minimapCtx.lineTo(pondMapX, pondMapY + 5);
+      minimapCtx.lineTo(pondMapX - 5, pondMapY);
+      minimapCtx.closePath();
+      minimapCtx.fill();
+      minimapCtx.stroke();
+    }
+
+    for (var fireIndex = 0; fireIndex < fires.length; fireIndex++) {
+      var mapFire = fires[fireIndex];
+      var fireDx = mapFire.x - player.x, fireDz = mapFire.z - player.z;
+      if (fireDx * fireDx + fireDz * fireDz > MINIMAP_WORLD_RADIUS * MINIMAP_WORLD_RADIUS) continue;
+      minimapCtx.fillStyle = mapFire.lit ? '#ff9a44' : '#a16d48';
+      minimapCtx.beginPath();
+      minimapCtx.arc(centerX + fireDx * scale, centerY + fireDz * scale, 3, 0, Math.PI * 2);
+      minimapCtx.fill();
+    }
+    for (var shelterIndex = 0; shelterIndex < shelters.length; shelterIndex++) {
+      var mapShelter = shelters[shelterIndex];
+      var shelterDx = mapShelter.x - player.x, shelterDz = mapShelter.z - player.z;
+      if (shelterDx * shelterDx + shelterDz * shelterDz > MINIMAP_WORLD_RADIUS * MINIMAP_WORLD_RADIUS) continue;
+      minimapCtx.fillStyle = '#d7b47a';
+      minimapCtx.fillRect(centerX + shelterDx * scale - 3, centerY + shelterDz * scale - 2, 6, 4);
+    }
+
+    var headingX = -Math.sin(player.yaw), headingZ = -Math.cos(player.yaw);
+    minimapCtx.fillStyle = '#ffffff';
+    minimapCtx.strokeStyle = '#00d4ff';
+    minimapCtx.lineWidth = 2;
+    minimapCtx.beginPath();
+    minimapCtx.moveTo(centerX + headingX * 10, centerY + headingZ * 10);
+    minimapCtx.lineTo(centerX - headingX * 6 - headingZ * 5, centerY - headingZ * 6 + headingX * 5);
+    minimapCtx.lineTo(centerX - headingX * 6 + headingZ * 5, centerY - headingZ * 6 - headingX * 5);
+    minimapCtx.closePath();
+    minimapCtx.fill();
+    minimapCtx.stroke();
+    minimapCtx.restore();
+
+    minimapCtx.font = 'bold 10px Orbitron, sans-serif';
+    minimapCtx.textAlign = 'center';
+    minimapCtx.fillStyle = '#00d4ff';
+    minimapCtx.fillText('N', centerX, 12);
+    minimapCtx.font = 'bold 8px Space Mono, monospace';
+    minimapCtx.fillStyle = '#76ddff';
+    minimapCtx.fillText('POND', Math.max(20, Math.min(width - 20, pondMapX)), Math.max(20, Math.min(height - 8, pondMapY - 8)));
+    minimapCtx.textAlign = 'left';
+    minimapCtx.fillStyle = 'rgba(223,246,255,0.66)';
+    minimapCtx.fillText('60m', 8, height - 8);
+  }
+
+  /* ===============================================================
+     MAIN LOOP
+  =============================================================== */
+  var fwd = new THREE.Vector3(), right = new THREE.Vector3();
+  var actionRefreshTimer = 0, objectiveRefreshTimer = 0, minimapRefreshTimer = 0, wetnessWarningShown = false;
+  var hungerWarningLevel = 0, thirstWarningLevel = 0, coldWarningLevel = 0;
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    var delta = Math.min(0.06, (now - lastFrame) / 1000);
+    lastFrame = now;
+
+    if (running && player.alive) {
+      elapsed += delta;
+      var sleepingAtFrameStart = !!(player.busy && player.busy.type === 'sleep');
+      var sleepSurvivalScale = sleepingAtFrameStart ? player.busy.survivalScale : 1;
+      var worldMinutesBeforeFrame = worldMinutes;
+      worldMinutes += delta * GAME_MINUTES_PER_REAL_SECOND;
+      if (sleepingAtFrameStart) worldMinutes += delta * player.busy.sleepBonusPerSecond;
+      var daylight = daylightFactor();
+
+      camera.rotation.y = player.yaw;
+      camera.rotation.x = player.pitch;
+
+      if (!isMobile && !inventoryOpen && !keys['Space']) {
+        if (keys['ArrowLeft']) player.yaw += KEYBOARD_TURN_SPEED * delta;
+        if (keys['ArrowRight']) player.yaw -= KEYBOARD_TURN_SPEED * delta;
+        camera.rotation.y = player.yaw;
+      }
+
+      if (!player.busy && !inventoryOpen) {
+        fwd.set(0, 0, -1).applyQuaternion(camera.quaternion); fwd.y = 0; fwd.normalize();
+        right.set(-fwd.z, 0, fwd.x);
+
+        var ix = 0, iy = 0, runningFlag = false;
+        if (isMobile) {
+          ix = joyVec.x; iy = -joyVec.y;
+          runningFlag = Math.sqrt(joyVec.x * joyVec.x + joyVec.y * joyVec.y) > 0.82;
+        } else {
+          if (keys['KeyW'] || keys['ArrowUp']) iy += 1;
+          if (keys['KeyS'] || keys['ArrowDown']) iy -= 1;
+          if (keys['KeyD'] || (keys['Space'] && keys['ArrowRight'])) ix += 1;
+          if (keys['KeyA'] || (keys['Space'] && keys['ArrowLeft'])) ix -= 1;
+          runningFlag = !!keys['ShiftLeft'] || !!keys['ShiftRight'];
+        }
+        player.running = runningFlag && player.hunger > EXHAUSTED_HUNGER && (ix !== 0 || iy !== 0);
+        var mag = Math.sqrt(ix * ix + iy * iy);
+        if (mag > 1) { ix /= mag; iy /= mag; }
+        var speed = (player.running ? RUN_SPEED : WALK_SPEED) * hungerMovementMultiplier();
+        var moveX = (fwd.x * iy + right.x * ix) * speed * delta;
+        var moveZ = (fwd.z * iy + right.z * ix) * speed * delta;
+        var nx = player.x + moveX, nz = player.z + moveZ;
+        if (Math.sqrt(nx * nx + nz * nz) < WORLD_HALF - 6) { player.x = nx; player.z = nz; }
+      } else {
+        player.running = false;
+      }
+
+      var groundH = getTerrainHeight(player.x, player.z);
+      var eyeHeight = player.busy && player.busy.type === 'stump-rest' ? STUMP_SEATED_EYE_HEIGHT : EYE_HEIGHT;
+      var floorY = Math.max(groundH, WATER_LEVEL - 0.3) + eyeHeight;
+      camera.position.x = player.x; camera.position.z = player.z;
+      camera.position.y += (floorY - camera.position.y) * Math.min(1, delta * 8);
+      updateFlashlightTransform();
+
+      /* ---- busy/timed action ---- */
+      if (player.busy) {
+        if (player.busy.stayNear && !player.busy.stayNear()) {
+          if (player.busy.onCancel) player.busy.onCancel();
+          showToast(player.busy.interruptMessage || 'Action interrupted', true);
+          player.busy = null;
+        } else {
+          player.busy.remaining -= delta;
+          if (player.busy.onTick) player.busy.onTick(delta);
+          if (player.busy.remaining <= 0) { player.busy.onComplete(); player.busy = null; }
+        }
+      }
+
+      /* ---- weather / fires / fireflies / glints ---- */
+      var worldMinutesAdvanced = Math.max(0, worldMinutes - worldMinutesBeforeFrame);
+      updateWeather(delta * (sleepingAtFrameStart ? 2 : 1), elapsed);
+      updateFires(delta, worldMinutesAdvanced, elapsed);
+      updateCombat(delta);
+      if (daylight < 0.32) {
+        updateGlints(delta);
+      } else {
+        for (var daylightGlint = 0; daylightGlint < glints.length; daylightGlint++) glints[daylightGlint].group.visible = false;
+      }
+      for (var ffi = 0; ffi < FIREFLY_COUNT; ffi++) {
+        var fd = fireflyData[ffi];
+        var t = elapsed * fd.speed + fd.phase;
+        fireflyPos[ffi * 3] = fd.x + Math.cos(t * 0.6) * 1.1;
+        fireflyPos[ffi * 3 + 1] = fd.y + Math.sin(t) * 0.35;
+        fireflyPos[ffi * 3 + 2] = fd.z + Math.sin(t * 0.6) * 1.1;
+      }
+      fireflyGeo.attributes.position.needsUpdate = true;
+      fireflyMat.opacity = Math.max(0.02, 0.92 * (1 - daylight));
+      mistMesh.position.x = camera.position.x + Math.sin(elapsed * 0.05) * 6;
+      mistMesh.position.z = camera.position.z + Math.cos(elapsed * 0.04) * 6;
+
+      var moonFlicker = 0.34 + Math.sin(elapsed * 0.06) * 0.03 + noise2D(elapsed * 0.1, 0) * 0.03;
+      moonLight.intensity = moonFlicker * (1 - daylight) + daylight * 0.82;
+      daylightLightColor.setHex(0xaac8ff).lerp(SUN_COLOR, daylight);
+      moonLight.color.copy(daylightLightColor);
+      var sunAngle = minuteOfDay() / 1440 * Math.PI * 2 - Math.PI / 2;
+      moonLight.position.set(Math.cos(sunAngle) * 90, 24 + daylight * 116, Math.sin(sunAngle) * 55);
+      hemiLight.intensity = 0.38 + daylight * 0.76;
+      ambientFill.intensity = 0.16 + daylight * 0.38;
+      renderer.toneMappingExposure = 1.08 + daylight * 0.22;
+
+      skyTargetColor.copy(NIGHT_COLOR).lerp(DAY_COLOR, daylight);
+      var twilight = 4 * daylight * (1 - daylight);
+      skyTargetColor.lerp(DAWN_COLOR, twilight * 0.34);
+      if (weather.isRaining) skyTargetColor.lerp(daylight > 0.2 ? RAIN_DAY_COLOR : RAIN_COLOR, 0.72);
+      scene.background.lerp(skyTargetColor, Math.min(1, delta * (sleepingAtFrameStart ? 2.8 : 0.7)));
+      scene.fog.color.lerp(skyTargetColor, Math.min(1, delta * (sleepingAtFrameStart ? 2.8 : 0.7)));
+      scene.fog.far = weather.isRaining ? (68 + daylight * 12) : (92 + daylight * 32);
+
+      /* ---- forage respawns ---- */
+      for (var sIdx = 0; sIdx < forageSpots.length; sIdx++) {
+        var spot = forageSpots[sIdx];
+        if (spot.collected && elapsed >= spot.respawnAt) {
+          spot.collected = false; spot.group.visible = true;
+          if (spot.type === 'berry') spot.yield = 2 + Math.floor(Math.random() * 3);
+        }
+      }
+      for (var leafRespawnIndex = 0; leafRespawnIndex < leafSpots.length; leafRespawnIndex++) {
+        var respawningLeaves = leafSpots[leafRespawnIndex];
+        if (respawningLeaves.collected && elapsed >= respawningLeaves.respawnAt) {
+          respawningLeaves.collected = false;
+          respawningLeaves.count = 3 + Math.floor(Math.random() * 3);
+          respawningLeaves.group.visible = true;
+        }
+      }
+
+      /* ---- survival stats ---- */
+      var survivalDelta = delta * sleepSurvivalScale;
+      var starvingFromHunger = advanceHunger(worldMinutesAdvanced);
+      var dehydratingFromThirst = advanceThirst(worldMinutesAdvanced);
+      var nearLit = isNearLitFire(player.x, player.z, 6.2);
+      var sheltered = isSheltered(player.x, player.z);
+      var pondDx = player.x - POND.x, pondDz = player.z - POND.z;
+      var standingInWater = pondDx * pondDx + pondDz * pondDz < (POND.r - 0.8) * (POND.r - 0.8);
+      var nowSheltered = !!sheltered;
+      if (nowSheltered !== shelterSafeActive) {
+        shelterSafeActive = nowSheltered;
+        document.getElementById('shelterZoneTag').style.display = shelterSafeActive ? 'block' : 'none';
+        if (shelterSafeActive) showToast(weather.isRaining ? 'Under cover · wet clothing begins to dry' : 'Sheltered from wind and weather');
+      }
+      document.getElementById('shelterZoneTag').textContent = sheltered && sheltered.insulated ? 'INSULATED SHELTER · DRYING' : 'SHELTERED FROM THE ELEMENTS';
+      var exposedToRain = weather.isRaining && !sheltered;
+      if (standingInWater) player.wetness += 16 * survivalDelta;
+      else if (exposedToRain) player.wetness += RAIN_WETNESS_RATE * survivalDelta;
+      else player.wetness -= 0.16 * survivalDelta;
+      if (sheltered) player.wetness -= (sheltered.insulated ? 2.5 : 0.9) * survivalDelta;
+      if (nearLit) player.wetness -= (exposedToRain ? EXPOSED_FIRE_DRYING_RATE : FIRE_DRYING_RATE) * survivalDelta;
+      player.wetness = Math.max(0, Math.min(100, player.wetness));
+      if (player.wetness >= 65 && !wetnessWarningShown) {
+        wetnessWarningShown = true;
+        showToast('Soaked clothing is draining warmth · find fire or shelter', true);
+      } else if (player.wetness < 40) wetnessWarningShown = false;
+      var hypothermicFromCold = advanceWarmth(worldMinutesAdvanced, nearLit, sheltered, daylight, weather.isRaining, player.wetness);
+      if (player.hunger <= EXHAUSTED_HUNGER && hungerWarningLevel < 2) {
+        hungerWarningLevel = 2;
+        showToast('Exhausted from hunger · sprinting unavailable', true);
+      } else if (player.hunger < LOW_ENERGY_HUNGER && hungerWarningLevel < 1) {
+        hungerWarningLevel = 1;
+        showToast('Low energy · movement is slowing', true);
+      } else if (player.hunger >= LOW_ENERGY_HUNGER + 5) {
+        hungerWarningLevel = 0;
+      }
+      if (player.thirst <= 10 && thirstWarningLevel < 2) {
+        thirstWarningLevel = 2;
+        showToast('Critical dehydration · drink as soon as possible', true);
+      } else if (player.thirst < 30 && thirstWarningLevel < 1) {
+        thirstWarningLevel = 1;
+        showToast('Dehydrated · find or prepare drinking water', true);
+      } else if (player.thirst >= 35) {
+        thirstWarningLevel = 0;
+      }
+      if (player.warmth <= 10 && coldWarningLevel < 2) {
+        coldWarningLevel = 2;
+        showToast('Hypothermia danger · seek fire and shelter now', true);
+      } else if (player.warmth < 30 && coldWarningLevel < 1) {
+        coldWarningLevel = 1;
+        showToast('Body temperature falling · get dry and warm', true);
+      } else if (player.warmth >= 35) {
+        coldWarningLevel = 0;
+      }
+
+      var cause = null;
+      if (starvingFromHunger) cause = 'YOU STARVED';
+      if (dehydratingFromThirst) cause = 'YOU DIED OF THIRST';
+      if (hypothermicFromCold) cause = 'YOU FROZE IN THE DARK';
+      if (!cause && player.hunger > 20 && player.thirst > 20 && player.warmth > 20 && player.health < 100) {
+        player.health += 0.4 * survivalDelta;
+      }
+      player.health = Math.max(0, Math.min(100, player.health));
+      if (player.health <= 0) {
+        player.alive = false;
+        gameOver(cause || 'YOU DID NOT SURVIVE THE NIGHT');
+      }
+
+      var shouldBeat = player.health < 28;
+      if (shouldBeat && !heartbeatActive) { heartbeatActive = true; scheduleHeartbeat(); }
+      else if (!shouldBeat) heartbeatActive = false;
+
+      var fireAudioTarget = 0;
+      if (nearLit) {
+        var fdx = nearLit.x - player.x, fdz = nearLit.z - player.z;
+        var fdist = Math.sqrt(fdx * fdx + fdz * fdz);
+        fireAudioTarget = Math.max(0, 1 - fdist / 7);
+      }
+      var campfireVolumeTarget = fireAudioTarget * 0.58;
+      campfireLoopAudio.volume += (campfireVolumeTarget - campfireLoopAudio.volume) * Math.min(1, delta * 2.4);
+      var forestVolumeTarget = isNightTime() ? (weather.isRaining ? 0.16 : 0.28) : 0.045;
+      forestLoopAudio.volume += (forestVolumeTarget - forestLoopAudio.volume) * Math.min(1, delta * 1.2);
+
+      if (audioCtx) {
+        var rainTarget = weather.isRaining ? 0.05 : 0.0;
+        rainGain.gain.value += (rainTarget - rainGain.gain.value) * Math.min(1, delta * 1.5);
+        fireGain.gain.value += (0 - fireGain.gain.value) * Math.min(1, delta * 2);
+      }
+
+      /* ---- action panel refresh (throttled) ---- */
+      actionRefreshTimer -= delta;
+      if (actionRefreshTimer <= 0 && !player.busy) {
+        rebuildActionList();
+        actionRefreshTimer = 0.35;
+      }
+      document.getElementById('actionPanel').style.display = (player.busy || inventoryOpen) ? 'none' : 'flex';
+      document.getElementById('busyBar').style.display = player.busy ? 'block' : 'none';
+      if (player.busy) {
+        document.getElementById('busyLabel').textContent = player.busy.label + '...';
+        document.getElementById('busyFill').style.width = (100 * (1 - player.busy.remaining / player.busy.total)) + '%';
+      }
+      document.getElementById('sleepTime').textContent = 'DAY ' + worldDay() + ' · ' + formatWorldTime(worldMinutes);
+
+      document.getElementById('buildFireBtn').disabled = (player.pebbles < FIRE_PIT_PEBBLE_COST || fires.length >= MAX_FIRES);
+      document.getElementById('buildFireBtn').textContent = fires.length >= MAX_FIRES
+        ? 'FIRE PIT LIMIT REACHED'
+        : 'BUILD FIRE PIT (' + player.pebbles + '/' + FIRE_PIT_PEBBLE_COST + ' pebbles)';
+      document.getElementById('buildShelterBtn').disabled = (player.wood < SHELTER_COST || shelters.length >= MAX_SHELTERS);
+      document.getElementById('craftSlingshotBtn').disabled = (player.hasSlingshot || player.sticks < SLINGSHOT_STICK_COST);
+
+      /* ---- HUD ---- */
+      document.getElementById('hungerFill').style.width = player.hunger + '%';
+      document.getElementById('thirstFill').style.width = player.thirst + '%';
+      document.getElementById('warmthFill').style.width = player.warmth + '%';
+      document.getElementById('wetnessFill').style.width = player.wetness + '%';
+      document.getElementById('healthFill').style.width = player.health + '%';
+      document.getElementById('hungerNum').textContent = Math.round(player.hunger);
+      document.getElementById('thirstNum').textContent = Math.round(player.thirst);
+      document.getElementById('warmthNum').textContent = Math.round(player.warmth);
+      document.getElementById('wetnessNum').textContent = Math.round(player.wetness);
+      document.getElementById('healthNum').textContent = Math.round(player.health);
+      document.getElementById('invWood').textContent = player.wood;
+      document.getElementById('invSticks').textContent = player.sticks;
+      document.getElementById('invKindling').textContent = player.kindling + '/' + MAX_KINDLING;
+      document.getElementById('invLeaves').textContent = player.leaves + '/' + MAX_LEAVES;
+      document.getElementById('invPebbles').textContent = player.pebbles;
+      document.getElementById('invBerries').textContent = player.berries + '/' + MAX_BERRIES;
+      document.getElementById('invPot').textContent = player.potWater > 0 ? 'RAIN 1/1' : 'EMPTY';
+      document.getElementById('invSlingshot').textContent = player.hasSlingshot ? 'READY' : '—';
+      document.getElementById('invFlashlight').textContent = flashlightOn ? 'ON' : 'OFF';
+      document.getElementById('invRawWater').textContent = player.rawWater + '/3';
+      document.getElementById('invCleanWater').textContent = player.cleanWater + '/3';
+      document.getElementById('invMushRaw').textContent = player.rawMush;
+      document.getElementById('invMushCooked').textContent = player.cookedMush;
+      document.getElementById('invStew').textContent = player.stew;
+      document.getElementById('drawerBerries').textContent = player.berries + '/' + MAX_BERRIES;
+      document.getElementById('drawerCookedMush').textContent = player.cookedMush;
+      document.getElementById('drawerStew').textContent = player.stew;
+      document.getElementById('drawerCleanWater').textContent = player.cleanWater + '/3';
+      document.getElementById('drawerPot').textContent = player.potWater > 0 ? 'RAINWATER 1/1' : 'EMPTY 0/1';
+      document.getElementById('drawerRawMush').textContent = player.rawMush;
+      document.getElementById('drawerRawWater').textContent = player.rawWater + '/3';
+      document.getElementById('drawerMaterials').textContent = player.wood + ' / ' + player.sticks;
+      document.getElementById('drawerKindling').textContent = player.kindling + '/' + MAX_KINDLING;
+      document.getElementById('drawerLeaves').textContent = player.leaves + '/' + MAX_LEAVES;
+      document.getElementById('drawerPebbles').textContent = player.pebbles;
+      document.getElementById('eatBerryBtn').disabled = player.berries <= 0;
+      document.getElementById('eatCookedBtn').disabled = player.cookedMush <= 0;
+      document.getElementById('eatStewBtn').disabled = player.stew <= 0;
+      document.getElementById('drinkCleanBtn').disabled = player.cleanWater <= 0;
+      document.getElementById('drinkPotBtn').disabled = player.potWater <= 0;
+      document.getElementById('eatRawBtn').disabled = player.rawMush <= 0;
+      document.getElementById('drinkRawBtn').disabled = player.rawWater <= 0;
+      document.getElementById('clock').textContent = 'DAY ' + worldDay() + ' · ' + formatWorldTime(worldMinutes) + ' · ' + (isNightTime() ? 'NIGHT' : 'DAYLIGHT');
+      document.getElementById('rainTag').style.visibility = weather.isRaining ? 'visible' : 'hidden';
+      objectiveRefreshTimer -= delta;
+      if (objectiveRefreshTimer <= 0) {
+        updateDemoObjective();
+        objectiveRefreshTimer = 0.2;
+      }
+      minimapRefreshTimer -= delta;
+      if (minimapRefreshTimer <= 0) {
+        renderMinimap();
+        minimapRefreshTimer = 0.12;
+      }
+    }
+
+    renderer.setRenderTarget(renderTarget);
+    renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+    renderer.render(postScene, postCamera);
+  }
+
+  window.render_game_to_text = function () {
+    return JSON.stringify({
+      coordinateSystem: 'Origin is the starting camp. +x east, -z north. Distances are metres.',
+      mode: running ? 'playing' : (player.alive ? 'start' : 'game-over'),
+      hintsEnabled: hintsEnabled,
+      world: {
+        day: worldDay(),
+        time: formatWorldTime(worldMinutes),
+        phase: isNightTime() ? 'night' : 'daylight',
+        daylight: Number(daylightFactor().toFixed(2)),
+        firstNightSurvived: demoProgress.complete
+      },
+      navigation: {
+        minimapRange: MINIMAP_WORLD_RADIUS,
+        pondDistance: Number(Math.sqrt((POND.x - player.x) * (POND.x - player.x) + (POND.z - player.z) * (POND.z - player.z)).toFixed(1)),
+        pondDirection: compassDirectionFromDelta(POND.x - player.x, POND.z - player.z)
+      },
+      player: {
+        x: Number(player.x.toFixed(2)), z: Number(player.z.toFixed(2)),
+        yaw: Number(player.yaw.toFixed(3)), pitch: Number(player.pitch.toFixed(3)),
+        health: Math.round(player.health),
+        posture: player.busy && player.busy.type === 'stump-rest' ? 'seated' : 'standing'
+      },
+      survival: {
+        hunger: Math.round(player.hunger), thirst: Math.round(player.thirst), warmth: Math.round(player.warmth), wetness: Math.round(player.wetness),
+        energy: hungerEnergyState(), movementSpeedMultiplier: Number(hungerMovementMultiplier().toFixed(2)), daysFromFullToStarving: HUNGER_DAYS_TO_EMPTY,
+        hydration: hydrationState(), daysFromFullToSevereDehydration: THIRST_DAYS_TO_EMPTY,
+        temperature: temperatureState(), dryDaysFromWarmToHypothermia: DRY_COLD_DAYS_TO_EMPTY,
+        shelteredFromElements: shelterSafeActive,
+        rainExposure: weather.isRaining ? (shelterSafeActive ? 'sheltered' : 'exposed') : 'dry'
+      },
+      inventory: {
+        open: inventoryOpen, wood: player.wood, sticks: player.sticks, kindling: player.kindling, kindlingCapacity: MAX_KINDLING, leaves: player.leaves, leafCapacity: MAX_LEAVES, pebbles: player.pebbles,
+        berries: player.berries, berryCapacity: MAX_BERRIES, slingshot: player.hasSlingshot,
+        rawWater: player.rawWater, cleanWater: player.cleanWater, tinPot: player.potWater > 0 ? 'rainwater 1/1' : 'empty 0/1',
+        rawMushroom: player.rawMush, cookedMushroom: player.cookedMush, heartyStew: player.stew
+      },
+      activity: player.busy ? {
+        type: player.busy.type || 'task',
+        remaining: Number(player.busy.remaining.toFixed(1)),
+        total: player.busy.total
+      } : null,
+      camp: {
+        shelters: shelters.length,
+        leafBeds: shelters.filter(function (shelter) { return shelter.hasBed; }).length,
+        insulatedShelters: shelters.filter(function (shelter) { return shelter.insulated; }).length,
+        fires: fires.map(function (fire) {
+          var rainMultiplier = weather.isRaining && !isSheltered(fire.x, fire.z) ? RAIN_FIRE_DRAIN_MULTIPLIER : 1;
+          return {
+            pitBuilt: true,
+            prepared: fire.prepared,
+            lit: fire.lit,
+            fuel: Number(fire.fuel.toFixed(1)),
+            burnHoursRemaining: Number((fire.fuel / (FIRE_FUEL_DRAIN_PER_WORLD_MINUTE * rainMultiplier) / 60).toFixed(1))
+          };
+        })
+      },
+      forest: {
+        standingTrees: trees.filter(function (tree) { return !tree.chopped; }).length,
+        choppedTrees: trees.filter(function (tree) { return tree.chopped; }).length,
+        deadfallsRemaining: deadfalls.filter(function (deadfall) { return !deadfall.collected; }).length,
+        deadfallsGathered: deadfalls.filter(function (deadfall) { return deadfall.collected; }).length
+      },
+      combat: {
+        animalAttacksEnabled: animalAttacksEnabled,
+        activeProjectiles: projectiles.length,
+        fireSafeZone: fireSafeActive,
+        enemies: enemies.filter(function (enemy) { return enemy.alive; }).map(function (enemy) {
+          return {
+            type: enemy.type, hp: enemy.hp,
+            x: Number(enemy.x.toFixed(1)), z: Number(enemy.z.toFixed(1)),
+            distance: Number(Math.sqrt((enemy.x - player.x) * (enemy.x - player.x) + (enemy.z - player.z) * (enemy.z - player.z)).toFixed(1))
+          };
+        })
+      },
+      equipment: { flashlight: flashlightOn ? 'on' : 'off', tinPot: 'equipped' },
+      objective: document.getElementById('objectiveTitle').textContent,
+      milestones: {
+        wood: demoProgress.woodGathered >= FIRE_COST,
+        firePit: demoProgress.fireBuilt,
+        fire: demoProgress.fireBuilt && demoProgress.fireLit,
+        water: demoProgress.waterSecured,
+        food: demoProgress.foodSecured,
+        shelter: demoProgress.shelterBuilt,
+        dawn: demoProgress.complete
+      },
+      availableActions: currentActions.map(function (action) { return action.label; })
+    });
+  };
+  window.debug_move_to_instanced_tree = function () {
+    if (!DEBUG_DEMO) return false;
+    for (var i = 0; i < trees.length; i++) {
+      if (!trees[i].instanced || trees[i].chopped) continue;
+      player.x = trees[i].x;
+      player.z = trees[i].z + 1.4;
+      return true;
+    }
+    return false;
+  };
+  window.debug_move_to_kindling_tree = function () {
+    if (!DEBUG_DEMO) return false;
+    for (var i = 0; i < trees.length; i++) {
+      if (trees[i].chopped || !trees[i].kindlingYield) continue;
+      player.x = trees[i].x;
+      player.z = trees[i].z + 1.4;
+      return true;
+    }
+    return false;
+  };
+  window.debug_move_to_deadfall = function () {
+    if (!DEBUG_DEMO) return false;
+    var nearest = null, best = Infinity;
+    for (var i = 0; i < deadfalls.length; i++) {
+      if (deadfalls[i].collected) continue;
+      var dx = deadfalls[i].x - player.x, dz = deadfalls[i].z - player.z, distance = dx * dx + dz * dz;
+      if (distance < best) { best = distance; nearest = deadfalls[i]; }
+    }
+    if (!nearest) return false;
+    player.x = nearest.x;
+    player.z = nearest.z + 2.1;
+    player.yaw = Math.atan2(-(nearest.x - player.x), -(nearest.z - player.z));
+    player.pitch = -0.34;
+    return true;
+  };
+  window.debug_move_to_pebble_pile = function () {
+    if (!DEBUG_DEMO) return false;
+    var nearest = null, best = Infinity;
+    for (var i = 0; i < pebbleSpots.length; i++) {
+      if (pebbleSpots[i].collected) continue;
+      var dx = pebbleSpots[i].x - player.x, dz = pebbleSpots[i].z - player.z, distance = dx * dx + dz * dz;
+      if (distance < best) { best = distance; nearest = pebbleSpots[i]; }
+    }
+    if (!nearest) return false;
+    player.x = nearest.x;
+    player.z = nearest.z + 1.1;
+    player.yaw = Math.atan2(-(nearest.x - player.x), -(nearest.z - player.z));
+    player.pitch = -0.34;
+    return true;
+  };
+  window.debug_move_to_fire = function () {
+    if (!DEBUG_DEMO || !fires.length) return false;
+    var fire = fires[fires.length - 1];
+    player.x = fire.x + 2.35;
+    player.z = fire.z;
+    player.yaw = Math.atan2(-(fire.x - player.x), -(fire.z - player.z));
+    player.pitch = -0.42;
+    return true;
+  };
+  window.debug_prepare_unlit_fire = function () {
+    if (!DEBUG_DEMO) return false;
+    if (!fires.length) {
+      player.pebbles = Math.max(player.pebbles, FIRE_PIT_PEBBLE_COST);
+      buildFirePit();
+    }
+    var fire = fires[fires.length - 1];
+    if (!fire.prepared) {
+      player.wood = Math.max(player.wood, FIRE_COST);
+      prepareFire(fire);
+    }
+    fire.lit = false;
+    player.kindling = 0;
+    return window.debug_move_to_fire();
+  };
+  window.debug_camera_height = function () {
+    if (!DEBUG_DEMO) return false;
+    return Number(camera.position.y.toFixed(3));
+  };
+  window.debug_move_to_berry_bush = function () {
+    if (!DEBUG_DEMO) return false;
+    for (var i = 0; i < forageSpots.length; i++) {
+      if (forageSpots[i].type !== 'berry' || forageSpots[i].collected) continue;
+      player.x = forageSpots[i].x;
+      player.z = forageSpots[i].z + 1.4;
+      return true;
+    }
+    return false;
+  };
+  window.debug_move_to_mushroom = function () {
+    if (!DEBUG_DEMO) return false;
+    for (var i = 0; i < forageSpots.length; i++) {
+      if (forageSpots[i].type !== 'mushroom' || forageSpots[i].collected) continue;
+      player.x = forageSpots[i].x;
+      player.z = forageSpots[i].z + 1.4;
+      return true;
+    }
+    return false;
+  };
+  window.debug_move_to_leaf_pile = function () {
+    if (!DEBUG_DEMO) return false;
+    for (var leafIndex = 0; leafIndex < leafSpots.length; leafIndex++) {
+      if (leafSpots[leafIndex].collected) continue;
+      player.x = leafSpots[leafIndex].x;
+      player.z = leafSpots[leafIndex].z + 1.2;
+      player.yaw = Math.atan2(-(leafSpots[leafIndex].x - player.x), -(leafSpots[leafIndex].z - player.z));
+      player.pitch = -0.42;
+      return true;
+    }
+    return false;
+  };
+  window.debug_move_near_pond = function () {
+    if (!DEBUG_DEMO) return false;
+    player.x = POND.x;
+    player.z = POND.z + POND.r + 2;
+    player.yaw = Math.PI;
+    player.pitch = -0.12;
+    return true;
+  };
+  window.debug_slingshot_setup = function (type) {
+    if (!DEBUG_DEMO) return false;
+    player.sticks = Math.max(player.sticks, SLINGSHOT_STICK_COST);
+    craftSlingshot();
+    player.pebbles = Math.max(player.pebbles, 10);
+    var direction = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    direction.y = 0; direction.normalize();
+    spawnEnemy(type === 'bigfoot' ? 'bigfoot' : 'bear', player.x + direction.x * 8, player.z + direction.z * 8, 12);
+    return true;
+  };
+  window.debug_close_enemy = function (type) {
+    if (!DEBUG_DEMO) return false;
+    var direction = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    direction.y = 0; direction.normalize();
+    spawnEnemy(type === 'bigfoot' ? 'bigfoot' : 'bear', player.x + direction.x * 1.15, player.z + direction.z * 1.15);
+    return true;
+  };
+  window.debug_fire_safe_zone_setup = function (type) {
+    if (!DEBUG_DEMO) return false;
+    player.health = 100;
+    debugPrepareAndLightFire();
+    var direction = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    direction.y = 0; direction.normalize();
+    spawnEnemy(type === 'bigfoot' ? 'bigfoot' : 'bear', player.x + direction.x * 3.2, player.z + direction.z * 3.2);
+    return true;
+  };
+  window.debug_shelter_setup = function () {
+    if (!DEBUG_DEMO) return false;
+    player.wood = Math.max(player.wood, SHELTER_COST);
+    return buildShelter() || false;
+  };
+  window.debug_move_under_shelter = function () {
+    if (!DEBUG_DEMO || !shelters.length) return false;
+    var shelter = shelters[shelters.length - 1];
+    var localZ = 0.22, sine = Math.sin(shelter.yaw), cosine = Math.cos(shelter.yaw);
+    player.x = shelter.x + localZ * sine;
+    player.z = shelter.z + localZ * cosine;
+    player.yaw = shelter.yaw + Math.PI;
+    player.pitch = -0.08;
+    return true;
+  };
+  window.debug_move_outside_shelter = function () {
+    if (!DEBUG_DEMO || !shelters.length) return false;
+    var shelter = shelters[shelters.length - 1];
+    var localZ = shelter.frontDepth + 2.9, sine = Math.sin(shelter.yaw), cosine = Math.cos(shelter.yaw);
+    player.x = shelter.x + localZ * sine;
+    player.z = shelter.z + localZ * cosine;
+    player.yaw = shelter.yaw;
+    player.pitch = -0.08;
+    return true;
+  };
+  window.debug_view_shelter_bed = function () {
+    if (!DEBUG_DEMO || !shelters.length) return false;
+    var shelter = shelters[shelters.length - 1];
+    var localZ = shelter.frontDepth + 2.2, sine = Math.sin(shelter.yaw), cosine = Math.cos(shelter.yaw);
+    player.x = shelter.x + localZ * sine;
+    player.z = shelter.z + localZ * cosine;
+    player.yaw = shelter.yaw;
+    player.pitch = -0.28;
+    return true;
+  };
+  window.debug_set_rain = function (enabled) {
+    if (!DEBUG_DEMO) return false;
+    weather.isRaining = !!enabled;
+    weather.timer = 999;
+    rainLines.visible = weather.isRaining;
+    return weather.isRaining;
+  };
+  window.debug_set_wetness = function (value) {
+    if (!DEBUG_DEMO) return false;
+    player.wetness = Math.max(0, Math.min(100, Number(value) || 0));
+    return player.wetness;
+  };
+  window.debug_set_survival_levels = function (hunger, thirst, warmth, health) {
+    if (!DEBUG_DEMO) return false;
+    player.hunger = Math.max(0, Math.min(100, Number(hunger)));
+    player.thirst = Math.max(0, Math.min(100, Number(thirst)));
+    player.warmth = Math.max(0, Math.min(100, Number(warmth)));
+    player.health = Math.max(1, Math.min(100, Number(health)));
+    return true;
+  };
+  window.debug_advance_hunger_days = function (days) {
+    if (!DEBUG_DEMO) return false;
+    var minutes = Math.max(0, Number(days) || 0) * 1440;
+    worldMinutes += minutes;
+    advanceHunger(minutes);
+    player.health = Math.max(0, Math.min(100, player.health));
+    return {
+      day: worldDay(),
+      hunger: Number(player.hunger.toFixed(2)),
+      health: Number(player.health.toFixed(2)),
+      energy: hungerEnergyState(),
+      movementSpeedMultiplier: Number(hungerMovementMultiplier().toFixed(2))
+    };
+  };
+  window.debug_advance_survival_exposure = function (hours, mode) {
+    if (!DEBUG_DEMO) return false;
+    var minutes = Math.max(0, Number(hours) || 0) * 60;
+    worldMinutes += minutes;
+    if (mode === 'dry-night') {
+      advanceThirst(minutes);
+      advanceWarmth(minutes, false, null, 0, false, 0);
+    } else if (mode === 'thirst') advanceThirst(minutes);
+    else if (mode === 'wet-cold') {
+      player.wetness = 100;
+      advanceWarmth(minutes, false, null, 0, true, player.wetness);
+    }
+    else advanceWarmth(minutes, false, null, 0.5, false, 0);
+    player.health = Math.max(0, Math.min(100, player.health));
+    return {
+      day: worldDay(),
+      thirst: Number(player.thirst.toFixed(2)),
+      warmth: Number(player.warmth.toFixed(2)),
+      health: Number(player.health.toFixed(2)),
+      hydration: hydrationState(),
+      temperature: temperatureState()
+    };
+  };
+  window.debug_prepare_shelter_upgrade = function () {
+    if (!DEBUG_DEMO) return false;
+    if (!shelters.length) window.debug_shelter_setup();
+    var shelter = shelters[shelters.length - 1];
+    if (!shelter.hasBed) {
+      player.leaves = Math.max(player.leaves, LEAF_BED_COST);
+      buildLeafBed(shelter);
+    }
+    player.sticks = Math.max(player.sticks, SHELTER_INSULATION_STICKS);
+    player.leaves = Math.max(player.leaves, SHELTER_INSULATION_LEAVES);
+    return true;
+  };
+  window.debug_insulate_shelter = function () {
+    if (!window.debug_prepare_shelter_upgrade()) return false;
+    var shelter = shelters[shelters.length - 1];
+    insulateShelter(shelter);
+    return shelter.insulated;
+  };
+  window.debug_start_rain_catch = function () {
+    if (!DEBUG_DEMO) return false;
+    weather.isRaining = true;
+    weather.timer = 999;
+    rainLines.visible = true;
+    startCatchRain();
+    return !!player.busy;
+  };
+  window.debug_pot_fire_setup = function (mode) {
+    if (!DEBUG_DEMO) return false;
+    var fire = debugPrepareAndLightFire();
+    player.potWater = 0;
+    player.x = fire.x + 1.25;
+    player.z = fire.z;
+    player.yaw = Math.atan2(-(fire.x - player.x), -(fire.z - player.z));
+    player.pitch = -0.34;
+    if (mode === 'boil') { player.rawWater = Math.max(player.rawWater, 1); startBoil(fire); }
+    else if (mode === 'stew' || mode === 'stew-ready') {
+      player.rawMush = Math.max(player.rawMush, 1);
+      player.berries = Math.max(player.berries, STEW_BERRY_COST);
+      player.cleanWater = Math.max(player.cleanWater, 1);
+      if (mode === 'stew') startStew(fire);
+    } else { player.rawMush = Math.max(player.rawMush, 1); startCook(fire); }
+    return mode === 'stew-ready' ? true : !!player.busy;
+  };
+  window.debug_finish_task = function () {
+    if (!DEBUG_DEMO || !player.busy) return false;
+    player.busy.remaining = 0.01;
+    return true;
+  };
+  window.debug_advance_fire_hours = function (hours, raining) {
+    if (!DEBUG_DEMO || !fires.length) return false;
+    weather.isRaining = !!raining;
+    var fire = fires[fires.length - 1];
+    burnFireFuel(fire, Math.max(0, Number(hours) || 0) * 60);
+    return {
+      lit: fire.lit,
+      fuel: Number(fire.fuel.toFixed(2)),
+      burnHoursRemaining: Number((fire.fuel / (FIRE_FUEL_DRAIN_PER_WORLD_MINUTE * (weather.isRaining && !isSheltered(fire.x, fire.z) ? RAIN_FIRE_DRAIN_MULTIPLIER : 1)) / 60).toFixed(2))
+    };
+  };
+  window.debug_water_drink = function (type) {
+    if (!DEBUG_DEMO) return false;
+    if (type === 'raw') { player.rawWater = 1; drinkRaw(); }
+    else if (type === 'pot') { player.potWater = 1; drinkPotWater(); }
+    else { player.cleanWater = 1; drinkClean(); }
+    return true;
+  };
+  window.debug_audio_action = function (type) {
+    if (!DEBUG_DEMO) return false;
+    if (type === 'eat-berry') { player.berries = 1; eatStoredBerry(); }
+    else if (type === 'eat-raw-mushroom') { player.rawMush = 1; eatRawMush(); }
+    else if (type === 'eat-cooked-mushroom') { player.cookedMush = 1; eatCookedMush(); }
+    else if (type === 'death') { player.health = 0; player.alive = false; gameOver('YOU DID NOT SURVIVE THE NIGHT'); }
+    else return false;
+    return true;
+  };
+  window.debug_audio_state = function () {
+    return {
+      forageCues: { berry: forageSoundEvents.berry, mushroom: forageSoundEvents.mushroom, leaves: forageSoundEvents.leaves },
+      forestLoop: forestLoopAudio.loop,
+      campfireLoop: campfireLoopAudio.loop,
+      forestVolume: Number(forestLoopAudio.volume.toFixed(2)),
+      campfireVolume: Number(campfireLoopAudio.volume.toFixed(2))
+    };
+  };
+  window.debug_set_world_time = function (hour, minute) {
+    if (!DEBUG_DEMO) return false;
+    var dayStart = Math.floor(worldMinutes / 1440) * 1440;
+    worldMinutes = dayStart + Math.max(0, Math.min(23, hour)) * 60 + Math.max(0, Math.min(59, minute || 0));
+    return { day: worldDay(), time: formatWorldTime(worldMinutes), phase: isNightTime() ? 'night' : 'daylight' };
+  };
+  window.debug_sleep_setup = function (completeCamp) {
+    if (!DEBUG_DEMO) return false;
+    if (!shelters.length) {
+      player.wood = Math.max(player.wood, SHELTER_COST);
+      buildShelter();
+    }
+    var sleepShelter = shelters[shelters.length - 1];
+    if (!sleepShelter.hasBed) {
+      player.leaves = Math.max(player.leaves, LEAF_BED_COST);
+      buildLeafBed(sleepShelter);
+    }
+    window.debug_move_under_shelter();
+    var dayStart = Math.floor(worldMinutes / 1440) * 1440;
+    worldMinutes = dayStart + 22 * 60;
+    if (completeCamp) {
+      debugPrepareAndLightFire();
+      demoProgress.woodGathered = FIRE_COST;
+      demoProgress.fireBuilt = true;
+      demoProgress.fireLit = true;
+      demoProgress.waterSecured = true;
+      demoProgress.foodSecured = true;
+      demoProgress.shelterBuilt = true;
+      demoProgress.dawnAt = nextDawnAfter(worldMinutes);
+    }
+    startSleep();
+    return !!(player.busy && player.busy.type === 'sleep');
+  };
+  window.debug_finish_sleep = function () {
+    if (!DEBUG_DEMO || !player.busy || player.busy.type !== 'sleep') return false;
+    player.busy.remaining = 0.01;
+    return true;
+  };
+  window.advanceTime = function (milliseconds) {
+    return new Promise(function (resolve) { window.setTimeout(resolve, Math.max(0, milliseconds)); });
+  };
+  requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>
