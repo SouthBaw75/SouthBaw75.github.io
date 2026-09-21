@@ -48,7 +48,7 @@ PROJECTS = [
     # games
     ("1",  "01", "SUNSET RIDGE",     "IDLE RANCH GAME",           "game", "https://sunset-ridge-ranch-game.netlify.app/",           "sunsetridge.jpg"),
     ("2",  "02", "MONSTER MUNCH",    "ARCADE GAME",               "game", "https://monster-munch-bsonnier.netlify.app/",            "monstermunch.jpg"),
-    ("3",  "03", "CRAWFISH KINGDOM", "BAYOU ADVENTURE",           "game", "https://crawfish-kingdom.netlify.app/",                  "crawfish.jpg"),
+    ("3",  "03", "CRAWFISH KINGDOM", "BAYOU ADVENTURE",           "game", "https://briananthonysonnier.com/crawfish-kingdom/",       "crawfish.jpg"),
     ("4",  "04", "TANK TACTICS",     "RETRO TANK COMBAT",         "game", "https://tank-tactics-retro-reload.netlify.app/",         "tanktactics.jpg"),
     ("5",  "05", "SPELLCASTER SIEGE","SPELL DEFENSE",             "game", "https://spellcaster-siege.netlify.app/",                 "spellcaster.jpg"),
     ("6",  "06", "ORGANISM",         "CAVE DESCENT",              "game", "https://organism-game.netlify.app/",                     "organism.jpg"),
