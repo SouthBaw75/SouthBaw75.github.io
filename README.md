@@ -32,6 +32,12 @@ thumbnail), dropping it in with the others of its kind:
 Also delete the project's line from `PROJECTS` in `build-southbaw.py`, or a rebuild
 brings it back.
 
+`repoint-project.py` changes where a card links, in both `index.html` and
+`build-southbaw.py`. Use it when moving a project from Netlify into this repo:
+
+    python3 repoint-project.py https://tank-tactics-retro-reload.netlify.app/ \
+        https://briananthonysonnier.com/tank-tactics/
+
 `patch-southbaw.py` applies the fixes that came after that export — responsive layout,
 working search, real menu links, and the `<title>`/favicon/og tags the bundler's runtime
 would otherwise drop. It only needs `index.html`, so it runs anywhere, and it refuses to

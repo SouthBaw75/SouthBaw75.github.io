@@ -1,0 +1,4510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TANK TACTICS: RETRO RELOAD</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  background:#000;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  min-height:100vh;
+  padding:8px;
+  overflow:hidden;
+  font-family:'Press Start 2P',monospace;
+}
+#wrap{
+  position:relative;
+  width:min(calc(100vw - 16px), calc((100vh - 16px) * 0.5769));
+  aspect-ratio:600 / 1040;
+  border-radius:18px;
+  overflow:hidden;
+  touch-action:none;
+  box-shadow:
+    0 0 0 2px #1a1a3a,
+    0 0 80px rgba(0,200,80,.3),
+    0 0 200px rgba(0,80,40,.2);
+}
+canvas{
+  position:absolute;
+  top:0;left:0;
+  width:100%;height:100%;
+  image-rendering:pixelated;
+  image-rendering:crisp-edges;
+}
+#crt{pointer-events:none;z-index:9}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="gc" width="600" height="1040"></canvas>
+  <canvas id="crt" width="600" height="1040"></canvas>
+</div>
+<script>
+'use strict';
+
+/* ══════════════════════════════════════════════════
+   CONSTANTS
+══════════════════════════════════════════════════ */
+const W=600,HUD=60,AH=800,CONTROL_DOCK=180,H=HUD+AH+CONTROL_DOCK,TS=40,COLS=15,ROWS=20;
+const ARENA_BOTTOM=HUD+AH;
+const KILLS_WIN=5,ROUND_KILLS_TO_WIN=3,BULLET_SPD=6.5,RESPAWN_MS=2200,PU_INTERVAL=16000,MAX_ACTIVE_POWERUPS=4;
+const NIGHT_ROUND_MOD=3;          // every 3rd round is Night Mode (0-indexed: round 2,5,8…)
+const RADAR_RADIUS=115;           // personal radar bubble radius (px)
+const RADAR_PULSE_MAX=340;        // pulse expands to this radius then dies
+const RADAR_PULSE_SPD=160;        // px per second
+const RADAR_PULSE_WIDTH=72;       // width of the revealed ring
+const RADAR_PULSE_COUNT=3;        // pulses per power-up pick-up
+const RADAR_PULSE_INTERVAL=3000;  // ms between pulses
+const FRAME_MS=1000/60;
+const SNAPSHOT_MS=50,INPUT_SEND_MS=45;
+const DEG=Math.PI/180;
+const PROD_SOCKET_URL='wss://tank-tactics-online-sb75.fly.dev';
+const PROD_SHARE_URL='https://tank-tactics-retro-reload.netlify.app';
+const BASE_TANK_STATS={speed:1.7,rot:1.8*DEG,fireMs:900,bounces:1,trait:'Standardized chassis'};
+
+function getSocketUrl(){
+  const params=new URLSearchParams(window.location.search);
+  const explicit=params.get('ws');
+  if(explicit)return explicit;
+  if(window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1'){
+    return 'ws://127.0.0.1:3001';
+  }
+  return PROD_SOCKET_URL;
+}
+
+const TANK_DEF={
+  RED:   {name:'RED ASSAULT',col:'#d42020',dark:'#6e0e0e',hi:'#ff6666',...BASE_TANK_STATS},
+  GREEN: {name:'GREEN SCOUT',col:'#18a818',dark:'#085808',hi:'#66ff66',...BASE_TANK_STATS},
+  BLUE:  {name:'BLUE HEAVY',col:'#1840c8',dark:'#0c1e6a',hi:'#66aaff',...BASE_TANK_STATS},
+  YELLOW:{name:'YELLOW TRICKSTER',col:'#c89800',dark:'#634800',hi:'#ffee44',...BASE_TANK_STATS},
+};
+const TANK_ORDER=['RED','GREEN','BLUE','YELLOW'];
+
+const PU_DEF={
+  RAPID:    {label:'RAPID FIRE', icon:'RF',col:'#ff8800',dur:6000},
+  TRIPLE:   {label:'TRIPLE SHOT',icon:'3X',col:'#ff3399',dur:8000},
+  SHIELD:   {label:'SHIELD',     icon:'SH',col:'#00ccff',dur:0},
+  BOUNCE:   {label:'BOUNCE+',    icon:'B+',col:'#aa44ff',dur:10000},
+  BREACH:   {label:'BREACH',     icon:'BR',col:'#ff6644',dur:8000},
+  GHOST:    {label:'GHOST',      icon:'GH',col:'#99aaaa',dur:5000},
+  SHRAPNEL: {label:'SHRAPNEL',   icon:'SR',col:'#ffcc00',dur:7000},
+  HSPEED:   {label:'HIGH SPEED', icon:'HS',col:'#00ffee',dur:8000},
+  RADAR:    {label:'RADAR PING', icon:'RD',col:'#00ff88',dur:0},
+  MINE:     {label:'LAND MINE',  icon:'LM',col:'#cc4400',dur:0},
+};
+const PU_KEYS=Object.keys(PU_DEF);
+
+const PAL={
+  bg:'#07070e',floor:'#0f0f22',grid:'rgba(255,60,60,0.28)',
+  wall:'#2d2d52',wallHL:'#4a4a78',wallSH:'#161630',
+  hud:'#05050f',green:'#00ff88',yellow:'#ffdd00',
+  red:'#ff4040',white:'#dde0ff',dim:'#444466',
+};
+
+/* ══════════════════════════════════════════════════
+   PRESET MAPS  [0=floor 1=wall] source maps are 20 cols × 15 rows
+══════════════════════════════════════════════════ */
+const RAW_MAPS=[
+  // 1: Open Fields
+  [[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+   [1,0,0,1,1,0,0,0,0,1,1,0,0,0,0,1,1,0,0,1],
+   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+   [1,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,1],
+   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+   [1,0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,1],
+   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+   [1,0,0,0,1,0,0,0,0,1,1,0,0,0,0,1,0,0,0,1],
+   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+   [1,0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0,0,1],
+   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+   [1,0,0,1,1,0,0,0,0,1,1,0,0,0,0,1,1,0,0,1],
+   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+   [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]],
+  // 2: Fortress
+  [[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+   [1,0,1,1,0,0,0,1,0,1,1,0,1,0,0,0,1,1,0,1],
+   [1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1],
+   [1,0,0,0,1,1,1,0,0,0,0,0,0,1,1,1,0,0,0,1],
+   [1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1],
+   [1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1],
+   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+   [1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1],
+   [1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1],
+   [1,0,0,0,1,1,1,0,0,0,0,0,0,1,1,1,0,0,0,1],
+   [1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1],
+   [1,0,1,1,0,0,0,1,0,1,1,0,1,0,0,0,1,1,0,1],
+   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+   [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]],
+  // 3: Corridors
+  [[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+   [1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1],
+   [1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1],
+   [1,0,0,0,1,1,1,1,1,0,0,1,1,1,1,1,0,0,0,1],
+   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+   [1,0,0,0,1,1,1,0,0,0,0,0,0,1,1,1,0,0,0,1],
+   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+   [1,0,0,0,1,1,1,0,0,0,0,0,0,1,1,1,0,0,0,1],
+   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+   [1,0,0,0,1,1,1,1,1,0,0,1,1,1,1,1,0,0,0,1],
+   [1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1],
+   [1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1],
+   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+   [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]],
+  // 4: Maze
+  [[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+   [1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,1],
+   [1,0,1,0,1,0,1,1,1,0,1,0,1,1,1,0,1,0,1,1],
+   [1,0,1,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,1,1],
+   [1,0,1,1,1,0,1,0,1,1,1,1,1,0,1,0,1,1,1,1],
+   [1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,0,1],
+   [1,1,1,0,1,1,1,0,1,0,1,0,1,0,1,1,1,0,1,1],
+   [1,0,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1],
+   [1,0,1,1,1,0,1,0,1,1,1,1,1,0,1,0,1,1,0,1],
+   [1,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,1],
+   [1,0,1,0,1,1,1,0,1,0,1,1,1,0,1,1,0,1,0,1],
+   [1,0,0,0,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,1],
+   [1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1],
+   [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]],
+];
+
+function thinMazeSourceMap(src){
+  const out=src.map(row=>[...row]);
+  for(let r=1;r<src.length-1;r++){
+    for(let c=1;c<src[0].length-1;c++){
+      if(out[r][c]!==1)continue;
+      if((r+c)%3!==0)continue;
+      out[r][c]=0;
+    }
+  }
+  return out;
+}
+
+RAW_MAPS[3]=thinMazeSourceMap(RAW_MAPS[3]);
+
+function rotateMapPortrait(src){
+  const srcRows=src.length;
+  const srcCols=src[0].length;
+  const out=Array.from({length:srcCols},()=>Array(srcRows).fill(1));
+  for(let r=0;r<srcRows;r++){
+    for(let c=0;c<srcCols;c++){
+      out[c][srcRows-1-r]=src[r][c];
+    }
+  }
+  return out;
+}
+
+const MAPS=RAW_MAPS.map(rotateMapPortrait);
+
+// Tunnel pairs per map: {a,b}=cell coords, col=border color
+// loadTunnels() forces these cells to floor so position is always safe
+const MAP_TUNNELS=[
+  // Map 0 – Open Fields: one blue pair (top-left ↔ bottom-right)
+  [{a:{col:2,row:4}, b:{col:12,row:15}, col:'#4499ff'}],
+  // Map 1 – Fortress: two pairs (blue + orange, crossing diagonals)
+  [{a:{col:2,row:4},  b:{col:12,row:15}, col:'#4499ff'},
+   {a:{col:12,row:4}, b:{col:2,row:15},  col:'#ff8833'}],
+  // Map 2 – Corridors: one green pair (left ↔ right mid)
+  [{a:{col:2,row:6}, b:{col:12,row:13}, col:'#33ff99'}],
+  // Map 3 – Maze: two pairs (blue + purple)
+  [{a:{col:3,row:5},  b:{col:11,row:14}, col:'#4499ff'},
+   {a:{col:11,row:5}, b:{col:3,row:14},  col:'#cc44ff'}],
+];
+
+/* ══════════════════════════════════════════════════
+   PROCEDURAL MAP GENERATOR
+══════════════════════════════════════════════════ */
+function genMap(){
+  const g=Array.from({length:ROWS},()=>Array(COLS).fill(1));
+  const vis=Array.from({length:ROWS},()=>Array(COLS).fill(false));
+  const openRect=(row,col,h,w)=>{
+    for(let r=row;r<row+h;r++){
+      for(let c=col;c<col+w;c++){
+        if(r>0&&r<ROWS-1&&c>0&&c<COLS-1)g[r][c]=0;
+      }
+    }
+  };
+  function carve(r,c){
+    vis[r][c]=true;g[r][c]=0;
+    const dirs=[[0,-2],[0,2],[-2,0],[2,0]].sort(()=>Math.random()-.5);
+    for(const[dr,dc]of dirs){
+      const nr=r+dr,nc=c+dc;
+      if(nr>0&&nr<ROWS-1&&nc>0&&nc<COLS-1&&!vis[nr][nc]){
+        g[r+dr/2][c+dc/2]=0;carve(nr,nc);
+      }
+    }
+  }
+  carve(1,1);
+  // Extra openings for breathing room
+  for(let i=0;i<42;i++){
+    const r=1+Math.floor(Math.random()*(ROWS-2));
+    const c=1+Math.floor(Math.random()*(COLS-2));
+    g[r][c]=0;
+  }
+  for(let i=0;i<6;i++){
+    const roomH=2+Math.floor(Math.random()*2);
+    const roomW=2+Math.floor(Math.random()*2);
+    const r=1+Math.floor(Math.random()*(ROWS-roomH-1));
+    const c=1+Math.floor(Math.random()*(COLS-roomW-1));
+    openRect(r,c,roomH,roomW);
+  }
+  openRect(ROWS/2-1|0,2,2,COLS-4);
+  openRect(3,COLS/2-1|0,ROWS-6,2);
+  // Ensure spawn corners open
+  [[1,1],[1,2],[2,1],[ROWS-2,1],[ROWS-2,2],[ROWS-3,1],
+   [1,COLS-2],[1,COLS-3],[2,COLS-2],[ROWS-2,COLS-2],[ROWS-2,COLS-3],[ROWS-3,COLS-2]]
+  .forEach(([r,c])=>g[r][c]=0);
+  return g;
+}
+
+/* ══════════════════════════════════════════════════
+   AUDIO
+══════════════════════════════════════════════════ */
+class AudioManager{
+  constructor(){
+    this.ac=null;this.master=null;this.muted=false;
+    this.masterLevel=0.38;
+    this.theme=null;this.themeStarted=false;
+    this.themeTitleVolume=.55;
+    this.themeGameVolume=.24;
+    this.themeMode='title';
+  }
+  init(){
+    try{
+      this.ac=new(window.AudioContext||window.webkitAudioContext)();
+      this.master=this.ac.createGain();
+      this.master.gain.value=this.masterLevel;
+      this.master.connect(this.ac.destination);
+    }catch(e){}
+    this.theme=new Audio('assets/music/tank-tactics-theme.mp3');
+    this.theme.loop=true;
+    this.theme.preload='auto';
+    this.theme.volume=this.themeTitleVolume;
+    this.theme.muted=this.muted;
+    this.theme.playsInline=true;
+  }
+  resume(){if(this.ac&&this.ac.state==='suspended')this.ac.resume();}
+  setMuted(muted){
+    this.muted=muted;
+    if(this.master)this.master.gain.value=muted?0:this.masterLevel;
+    if(this.theme)this.theme.muted=muted;
+  }
+  setThemeMode(mode){
+    this.themeMode=mode==='game'?'game':'title';
+    if(this.theme)this.theme.volume=this.themeMode==='game'?this.themeGameVolume:this.themeTitleVolume;
+  }
+  startTheme(){
+    if(!this.theme)return Promise.resolve(false);
+    this.theme.muted=this.muted;
+    this.setThemeMode(this.themeMode);
+    if(this.themeStarted&&!this.theme.paused)return Promise.resolve(true);
+    const playPromise=this.theme.play();
+    if(playPromise&&playPromise.catch){
+      return playPromise.then(()=>{this.themeStarted=true;return true;}).catch(()=>false);
+    }
+    this.themeStarted=true;
+    return Promise.resolve(true);
+  }
+  _gain(vol,t){
+    const g=this.ac.createGain();
+    g.gain.setValueAtTime(0,t);
+    return g;
+  }
+  tone(freq,type,vol,attack,decay,pan=0){
+    if(!this.ac||this.muted)return;
+    this.resume();
+    const t=this.ac.currentTime;
+    const o=this.ac.createOscillator();
+    const g=this.ac.createGain();
+    const p=this.ac.createStereoPanner();
+    o.type=type;o.frequency.value=freq;p.pan.value=pan;
+    g.gain.setValueAtTime(0,t);
+    g.gain.linearRampToValueAtTime(vol,t+attack);
+    g.gain.exponentialRampToValueAtTime(0.001,t+attack+decay);
+    o.connect(g);g.connect(p);p.connect(this.master);
+    o.start(t);o.stop(t+attack+decay+.05);
+  }
+  noise(dur,vol,freq,pan=0){
+    if(!this.ac||this.muted)return;
+    this.resume();
+    const n=this.ac.sampleRate*dur;
+    const buf=this.ac.createBuffer(1,n,this.ac.sampleRate);
+    const d=buf.getChannelData(0);for(let i=0;i<n;i++)d[i]=Math.random()*2-1;
+    const src=this.ac.createBufferSource();src.buffer=buf;
+    const flt=this.ac.createBiquadFilter();flt.type='bandpass';flt.frequency.value=freq;flt.Q.value=3;
+    const g=this.ac.createGain();const p=this.ac.createStereoPanner();
+    const t=this.ac.currentTime;
+    g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+    p.pan.value=pan;
+    src.connect(flt);flt.connect(g);g.connect(p);p.connect(this.master);
+    src.start(t);
+  }
+  shoot(pan=0){
+    this.tone(200,'square',.35,.002,.13,pan);
+    this.noise(.09,.25,900,pan);
+  }
+  ricochet(pan=0){
+    const f=500+Math.random()*600;
+    this.tone(f,'sine',.25,.001,.18,pan);
+    this.tone(f*1.6,'sine',.12,.001,.1,pan);
+  }
+  explode(pan=0){
+    this.noise(.5,.9,120,pan);
+    this.noise(.25,.4,60,pan);
+    this.tone(70,'sawtooth',.35,.002,.3,pan);
+  }
+  powerup(){[380,560,760,1100].forEach((f,i)=>setTimeout(()=>this.tone(f,'sine',.28,.01,.09),i*65));}
+  hit(){this.tone(280,'square',.45,.001,.09);}
+  menuMove(){this.tone(420,'square',.18,.001,.045);}
+  menuSelect(){this.tone(840,'square',.25,.001,.08);setTimeout(()=>this.tone(1260,'square',.25,.001,.08),110);}
+  countBeep(hi){this.tone(hi?1200:600,'square',.35,.001,.1);}
+  victoryFanfare(){
+    [523,659,784,1047].forEach((f,i)=>setTimeout(()=>this.tone(f,'square',.3,.01,.25),i*150));
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   INPUT
+══════════════════════════════════════════════════ */
+class InputManager{
+  constructor(){
+    this.wrap=document.getElementById('wrap');
+    this.down=new Set();this.pressed=new Set();this.pointerPressed=false;
+    this.touchCapable='ontouchstart'in window||navigator.maxTouchPoints>0||window.matchMedia('(pointer: coarse)').matches;
+    this.touchLayoutFn=null;
+    this.touchPlayerNum=1;
+    this.joystick={active:false,pointerId:null,x:0,y:0,magnitude:0};
+    this.fire={active:false,pointerId:null};
+    this.tapPoint=null;
+    this.lastUITapAt=0;
+    window.addEventListener('keydown',e=>{
+      if(!this.down.has(e.code))this.pressed.add(e.code);
+      this.down.add(e.code);
+      if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
+    });
+    window.addEventListener('keyup',e=>this.down.delete(e.code));
+    window.addEventListener('pointerdown',()=>{this.pointerPressed=true;});
+    window.addEventListener('pointerdown',e=>this.handlePointerDown(e),{passive:false});
+    window.addEventListener('pointermove',e=>this.handlePointerMove(e),{passive:false});
+    window.addEventListener('pointerup',e=>this.handlePointerUp(e),{passive:false});
+    window.addEventListener('pointercancel',e=>this.handlePointerUp(e),{passive:false});
+    this.wrap.addEventListener('click',e=>this.handleClick(e),{passive:false});
+    this.wrap.addEventListener('touchstart',e=>this.handleTouchStart(e),{passive:false});
+    this.wrap.addEventListener('touchmove',e=>this.handleTouchMove(e),{passive:false});
+    this.wrap.addEventListener('touchend',e=>this.handleTouchEnd(e),{passive:false});
+    this.wrap.addEventListener('touchcancel',e=>this.handleTouchEnd(e),{passive:false});
+  }
+  setTouchLayout(fn){this.touchLayoutFn=fn;}
+  setTouchPlayerNum(playerNum){this.touchPlayerNum=playerNum||1;}
+  getTouchLayout(){return this.touchLayoutFn?this.touchLayoutFn():null;}
+  screenToGame(e){
+    if(!this.wrap)return null;
+    const rect=this.wrap.getBoundingClientRect();
+    if(!rect.width||!rect.height)return null;
+    return{
+      x:(e.clientX-rect.left)*(W/rect.width),
+      y:(e.clientY-rect.top)*(H/rect.height),
+    };
+  }
+  inCircle(pt,circle){
+    if(!pt||!circle)return false;
+    const dx=pt.x-circle.x,dy=pt.y-circle.y;
+    return dx*dx+dy*dy<=circle.r*circle.r;
+  }
+  updateJoystickFromPoint(pt,layout){
+    const dx=pt.x-layout.joystick.x;
+    const dy=pt.y-layout.joystick.y;
+    const dist=Math.hypot(dx,dy);
+    const max=layout.joystick.r;
+    const clamped=dist>max?max/dist:1;
+    this.joystick.x=dx*clamped/max;
+    this.joystick.y=dy*clamped/max;
+    this.joystick.magnitude=Math.min(1,dist/max);
+  }
+  handlePointerDown(e){
+    const pt=this.screenToGame(e);
+    if(!pt)return;
+    const layout=this.getTouchLayout();
+    if(this.touchCapable&&e.pointerType!=='mouse'&&layout){
+      if(!this.joystick.active&&this.inCircle(pt,layout.joystick)){
+        this.joystick.active=true;
+        this.joystick.pointerId=e.pointerId;
+        this.updateJoystickFromPoint(pt,layout);
+        e.preventDefault();
+        return;
+      }
+      if(!this.fire.active&&this.inCircle(pt,layout.fire)){
+        this.fire.active=true;
+        this.fire.pointerId=e.pointerId;
+        this.pressed.add('TouchFire');
+        e.preventDefault();
+        return;
+      }
+    }
+    this.tapPoint=pt;
+    this.lastUITapAt=performance.now();
+    if(e.pointerType!=='mouse'){
+      e.preventDefault();
+    }
+  }
+  handlePointerMove(e){
+    const pt=this.screenToGame(e);
+    if(e.pointerId!==this.joystick.pointerId)return;
+    const layout=this.getTouchLayout();
+    if(!layout||!pt)return;
+    this.updateJoystickFromPoint(pt,layout);
+    e.preventDefault();
+  }
+  handlePointerUp(e){
+    if(e.pointerId===this.joystick.pointerId){
+      this.joystick.active=false;
+      this.joystick.pointerId=null;
+      this.joystick.x=0;this.joystick.y=0;this.joystick.magnitude=0;
+    }
+    if(e.pointerId===this.fire.pointerId){
+      this.fire.active=false;
+      this.fire.pointerId=null;
+    }
+  }
+  handleClick(e){
+    if(this.getTouchLayout())return;
+    if(performance.now()-this.lastUITapAt<350)return;
+    const pt=this.screenToGame(e);
+    if(!pt)return;
+    this.pointerPressed=true;
+    this.tapPoint=pt;
+    e.preventDefault();
+  }
+  touchToPointer(touch,e){
+    return{
+      clientX:touch.clientX,
+      clientY:touch.clientY,
+      pointerId:touch.identifier,
+      pointerType:'touch',
+      preventDefault:()=>e.preventDefault(),
+    };
+  }
+  handleTouchStart(e){
+    this.pointerPressed=true;
+    for(const touch of e.changedTouches){
+      this.handlePointerDown(this.touchToPointer(touch,e));
+    }
+  }
+  handleTouchMove(e){
+    for(const touch of e.changedTouches){
+      this.handlePointerMove(this.touchToPointer(touch,e));
+    }
+  }
+  handleTouchEnd(e){
+    for(const touch of e.changedTouches){
+      this.handlePointerUp(this.touchToPointer(touch,e));
+    }
+  }
+  consumeTap(){
+    const tap=this.tapPoint;
+    this.tapPoint=null;
+    return tap;
+  }
+  isDown(k){return this.down.has(k)||((k==='TouchFire')&&this.fire.active);}
+  wasPressed(k){return this.pressed.has(k);}
+  anyPressed(){return this.pressed.size>0||this.pointerPressed;}
+  clearPressed(){this.pressed.clear();this.pointerPressed=false;}
+  getTouchVector(playerNum){
+    if(playerNum!==this.touchPlayerNum||!this.touchCapable||!this.joystick.active||this.joystick.magnitude<0.08)return null;
+    return{x:this.joystick.x,y:this.joystick.y,magnitude:this.joystick.magnitude};
+  }
+  isTouchPlayer(playerNum){return playerNum===this.touchPlayerNum;}
+  shouldShowTouchControls(){return this.touchCapable;}
+}
+
+/* ══════════════════════════════════════════════════
+   PARTICLES
+══════════════════════════════════════════════════ */
+class Particle{
+  constructor(x,y,vx,vy,col,life,sz){
+    this.x=x;this.y=y;this.vx=vx;this.vy=vy;
+    this.col=col;this.life=life;this.maxLife=life;this.sz=sz;
+  }
+  update(){this.x+=this.vx;this.y+=this.vy;this.vx*=.93;this.vy*=.93;this.life--;}
+  draw(ctx){
+    ctx.globalAlpha=Math.max(0,this.life/this.maxLife);
+    ctx.fillStyle=this.col;
+    ctx.fillRect(this.x-this.sz/2,this.y-this.sz/2,this.sz,this.sz);
+    ctx.globalAlpha=1;
+  }
+}
+class ParticleSystem{
+  constructor(){this.p=[];}
+  emit(x,y,col,n=12,spd=4,sz=4,life=30){
+    for(let i=0;i<n;i++){
+      const a=Math.random()*Math.PI*2;
+      const s=spd*(.4+Math.random()*.9);
+      this.p.push(new Particle(x+(Math.random()-.5)*8,y+(Math.random()-.5)*8,
+        Math.cos(a)*s,Math.sin(a)*s,col,life+Math.random()*15|0,sz*(.4+Math.random()*.8)));
+    }
+  }
+  update(){this.p=this.p.filter(p=>{p.update();return p.life>0;});}
+  draw(ctx){this.p.forEach(p=>p.draw(ctx));}
+}
+
+/* ══════════════════════════════════════════════════
+   BULLET
+══════════════════════════════════════════════════ */
+class Bullet{
+  constructor(x,y,angle,owner,maxBounces,col,wallBreak=false,hasShrapnel=false){
+    this.x=x;this.y=y;
+    this.vx=Math.sin(angle)*BULLET_SPD;
+    this.vy=-Math.cos(angle)*BULLET_SPD;
+    this.owner=owner;this.maxBounces=maxBounces;
+    this.bounces=0;this.active=true;
+    this.col=col;
+    this.wallBreak=wallBreak;
+    this.hasShrapnel=hasShrapnel;
+    this.trail=[];this.age=0;
+    this.ricPos=null;// last ricochet position for spark
+  }
+  update(arena,tanks,ps,audio,ricochetOn=true,friendlyFire=false,onlineEvents=null,newBullets=null){
+    if(!this.active)return;
+    this.age++;
+    this.trail.push({x:this.x,y:this.y});
+    if(this.trail.length>10)this.trail.shift();
+
+    // Bullet sway — owner's turn input gently curves the bullet
+    if(this.owner.turnInput!==0){
+      const sway=this.owner.turnInput*0.03;
+      const c=Math.cos(sway),s=Math.sin(sway);
+      const nvx=this.vx*c-this.vy*s;
+      const nvy=this.vx*s+this.vy*c;
+      this.vx=nvx;this.vy=nvy;
+    }
+
+    // sub-step movement for accuracy
+    const steps=3;
+    for(let s=0;s<steps;s++){
+      const svx=this.vx/steps,svy=this.vy/steps;
+      const nx=this.x+svx,ny=this.y+svy;
+      const r=3;
+      const sx=Math.sign(svx),sy=Math.sign(svy);
+      const hitX=arena.solid(nx+sx*r,this.y);
+      const hitY=arena.solid(this.x,ny+sy*r);
+      const hitC=arena.solid(nx+sx*r,ny+sy*r);
+      if(this.wallBreak&&(hitX||hitY||hitC)){
+        const hitPoints=[];
+        if(hitX)hitPoints.push({x:nx+sx*r,y:this.y});
+        if(hitY)hitPoints.push({x:this.x,y:ny+sy*r});
+        if(hitC)hitPoints.push({x:nx+sx*r,y:ny+sy*r});
+        const breached=arena.breakWallAt(hitPoints,this.owner.playerNum);
+        if(breached){
+          this.active=false;
+          ps.emit(breached.x,breached.y,PU_DEF.BREACH.col,16,5,3,24);
+          ps.emit(breached.x,breached.y,'#ffffff',8,6,2,18);
+          audio.ricochet(((breached.x/W)*2-1)*.35);
+          return;
+        }
+      }
+      let ref=false;
+      if(hitX||(hitC&&!hitY)){if(ricochetOn)this.vx=-this.vx;ref=true;}
+      if(hitY||(hitC&&!hitX)){if(ricochetOn)this.vy=-this.vy;ref=true;}
+      if(ref){
+        if(this.hasShrapnel&&newBullets){
+          this.active=false;
+          ps.emit(this.x,this.y,PU_DEF.SHRAPNEL.col,14,6,2.5,20);
+          ps.emit(this.x,this.y,'#ffffff',6,9,1.5,12);
+          audio.ricochet((this.x/W*2-1)*.5);
+          for(let si=0;si<10;si++){
+            const sa=(si/10)*Math.PI*2+(Math.random()-.5)*.5;
+            const spd=BULLET_SPD*(1.0+Math.random()*0.7);
+            newBullets.push(new ShrapnelPiece(this.x,this.y,Math.cos(sa)*spd,Math.sin(sa)*spd,this.owner));
+          }
+          return;
+        }
+        if(!ricochetOn){this.active=false;return;}
+        this.bounces++;
+        this.ricPos={x:this.x,y:this.y};
+        const pan=(this.x/W)*2-1;
+        audio.ricochet(pan*.5);
+        ps.emit(this.x,this.y,this.col,5,3,2,15);
+        if(this.bounces>this.maxBounces){this.active=false;return;}
+      }else{this.x=nx;this.y=ny;}
+    }
+
+    // Tank collision
+    for(const tk of tanks){
+      if(!tk.alive)continue;
+      // Self-hit: blocked entirely when friendly fire is off, blocked before first bounce when on
+      if(tk===this.owner&&(!friendlyFire||this.bounces===0))continue;
+      const dx=this.x-tk.x,dy=this.y-tk.y;
+      if(dx*dx+dy*dy<15*15){
+        if(tk.spawnShieldTimer>0){
+          // invulnerable during spawn grace period — bullet passes through
+        }else if(tk.shield){
+          tk.shield=false;this.active=false;
+          ps.emit(this.x,this.y,'#ffffff',12,4,3,18);
+          audio.hit();
+          if(onlineEvents)onlineEvents.push({type:'shieldHit',x:this.x,y:this.y});
+        }else if(!tk.ghost){
+          this.active=false;
+          if(tk!==this.owner)this.owner.roundKills++;
+          else this.owner.roundKills=Math.max(0,this.owner.roundKills-1);// self-kill penalty
+          if(onlineEvents)onlineEvents.push({type:'death',x:tk.x,y:tk.y,col:tk.col});
+          tk.die(ps,audio);
+        }
+        return;
+      }
+    }
+  }
+  draw(ctx){
+    if(!this.active)return;
+    // Trail
+    for(let i=0;i<this.trail.length;i++){
+      const a=(i/this.trail.length)*.5;
+      const sz=1+(i/this.trail.length)*3;
+      ctx.globalAlpha=a;
+      ctx.fillStyle=this.col;
+      ctx.fillRect(this.trail[i].x-sz/2,this.trail[i].y-sz/2,sz,sz);
+    }
+    ctx.globalAlpha=1;
+    // Glow
+    ctx.shadowColor=this.col;ctx.shadowBlur=8;
+    ctx.fillStyle='#ffffff';
+    ctx.beginPath();ctx.arc(this.x,this.y,4.5,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle=this.col;
+    ctx.beginPath();ctx.arc(this.x,this.y,3,0,Math.PI*2);ctx.fill();
+    ctx.shadowBlur=0;
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   SHRAPNEL PIECE — ghost mini-bullet from SHRAPNEL PU
+══════════════════════════════════════════════════ */
+class ShrapnelPiece{
+  constructor(x,y,vx,vy,owner){
+    this.x=x;this.y=y;this.vx=vx;this.vy=vy;
+    this.owner=owner;this.active=true;
+    this.life=26;this.maxLife=26;
+    this.col=PU_DEF.SHRAPNEL.col;
+    this.isShrapnel=true;
+    this.trail=[];
+  }
+  update(arena,tanks,ps,audio,ricochetOn,friendlyFire=false,onlineEvents=null){
+    if(!this.active)return;
+    this.life--;
+    if(this.life<=0){this.active=false;return;}
+    this.trail.push({x:this.x,y:this.y});
+    if(this.trail.length>6)this.trail.shift();
+    this.x+=this.vx;this.y+=this.vy;
+    if(this.x<-20||this.x>W+20||this.y<-20||this.y>H+20){this.active=false;return;}
+    for(const tk of tanks){
+      if(!tk.alive)continue;
+      if(tk===this.owner&&!friendlyFire)continue;
+      const dx=this.x-tk.x,dy=this.y-tk.y;
+      if(dx*dx+dy*dy<13*13){
+        this.active=false;
+        if(tk.spawnShieldTimer>0)return;
+        if(tk.shield){
+          tk.shield=false;
+          ps.emit(this.x,this.y,'#ffffff',6,3,2,12);
+          audio.hit();
+          return;
+        }
+        if(!tk.ghost){
+          if(tk!==this.owner)this.owner.roundKills++;
+          else this.owner.roundKills=Math.max(0,this.owner.roundKills-1);
+          if(onlineEvents)onlineEvents.push({type:'death',x:tk.x,y:tk.y,col:tk.col});
+          tk.die(ps,audio);
+        }
+        return;
+      }
+    }
+  }
+  draw(ctx){
+    if(!this.active)return;
+    const a=this.life/this.maxLife;
+    for(let i=0;i<this.trail.length;i++){
+      ctx.globalAlpha=(i/this.trail.length)*a*0.55;
+      ctx.fillStyle=this.col;
+      ctx.fillRect(this.trail[i].x-1,this.trail[i].y-1,2,2);
+    }
+    ctx.globalAlpha=a;
+    ctx.shadowColor=this.col;ctx.shadowBlur=5;
+    ctx.fillStyle='#ffffff';
+    ctx.beginPath();ctx.arc(this.x,this.y,2.2,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle=this.col;
+    ctx.beginPath();ctx.arc(this.x,this.y,1.5,0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=1;ctx.shadowBlur=0;
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   LAND MINE
+══════════════════════════════════════════════════ */
+class LandMine{
+  constructor(x,y,ownerPlayerNum){
+    this.x=x;this.y=y;this.ownerPlayerNum=ownerPlayerNum;
+    this.active=true;
+    this.armTimer=1200; // 1.2s arming delay so deployer can drive away
+    this.t=0;
+  }
+  update(dt){
+    this.t+=0.06;
+    if(this.armTimer>0)this.armTimer-=dt;
+  }
+  get armed(){return this.armTimer<=0;}
+  // Returns the playerNum of the tank that triggered this mine, or null
+  checkTrigger(tanks){
+    if(!this.active||!this.armed)return null;
+    for(const t of tanks){
+      if(!t.alive)continue;
+      if(Math.hypot(t.x-this.x,t.y-this.y)<18)return t;
+    }
+    return null;
+  }
+  draw(ctx,isVisible){
+    if(!this.active)return;
+    ctx.save();
+    ctx.translate(this.x,this.y);
+    if(!isVisible){ctx.restore();return;}
+    const pulse=0.7+0.3*Math.sin(this.t*2);
+    // Outer warning ring (dim, only for owner)
+    ctx.strokeStyle=`rgba(204,68,0,${0.25*pulse})`;
+    ctx.lineWidth=1;
+    ctx.beginPath();ctx.arc(0,0,22,0,Math.PI*2);ctx.stroke();
+    // Mine body
+    ctx.fillStyle=this.armed?'#cc4400':'#884422';
+    ctx.shadowColor='#cc4400';ctx.shadowBlur=this.armed?8*pulse:3;
+    ctx.beginPath();ctx.arc(0,0,7,0,Math.PI*2);ctx.fill();
+    // Prong spikes
+    ctx.strokeStyle=this.armed?'#ff6622':'#664433';
+    ctx.lineWidth=1.5;
+    for(let i=0;i<6;i++){
+      const a=(i/6)*Math.PI*2;
+      ctx.beginPath();ctx.moveTo(Math.cos(a)*5,Math.sin(a)*5);ctx.lineTo(Math.cos(a)*10,Math.sin(a)*10);ctx.stroke();
+    }
+    ctx.shadowBlur=0;
+    ctx.restore();
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   POWERUP
+══════════════════════════════════════════════════ */
+class PowerUp{
+  constructor(x,y,type){
+    this.x=x;this.y=y;this.type=type;this.active=true;this.t=0;
+  }
+  update(){this.t+=.07;}
+  draw(ctx){
+    if(!this.active)return;
+    const def=PU_DEF[this.type];
+    const sc=1+.08*Math.sin(this.t);
+    const al=.75+.25*Math.sin(this.t);
+    ctx.save();
+    ctx.translate(this.x,this.y);ctx.scale(sc,sc);
+    ctx.shadowColor=def.col;ctx.shadowBlur=16;
+    // Outer ring
+    ctx.globalAlpha=.3;
+    ctx.fillStyle=def.col;
+    ctx.beginPath();ctx.arc(0,0,15,0,Math.PI*2);ctx.fill();
+    // Border
+    ctx.globalAlpha=al;
+    ctx.strokeStyle=def.col;ctx.lineWidth=2.5;
+    ctx.beginPath();ctx.arc(0,0,15,0,Math.PI*2);ctx.stroke();
+    // Inner fill
+    ctx.globalAlpha=.8;
+    ctx.fillStyle=def.col;
+    ctx.beginPath();ctx.arc(0,0,9,0,Math.PI*2);ctx.fill();
+    // Icon
+    ctx.globalAlpha=1;ctx.shadowBlur=0;
+    ctx.fillStyle='#fff';
+    ctx.font='bold 8px monospace';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(def.icon,0,1);
+    ctx.restore();
+  }
+  checkCollect(tank){
+    if(!this.active)return false;
+    const dx=this.x-tank.x,dy=this.y-tank.y;
+    return dx*dx+dy*dy<20*20;
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   TANK
+══════════════════════════════════════════════════ */
+class Tank{
+  constructor(type,x,y,angle,controls,playerNum,isCPU=false){
+    this.type=type;this.x=x;this.y=y;this.angle=angle;
+    this.controls=controls;this.playerNum=playerNum;this.isCPU=isCPU;
+    const d=TANK_DEF[type];
+    this.speed=d.speed;this.rot=d.rot;this.fireMs=d.fireMs;this.baseBounces=d.bounces;
+    this.alive=true;this.kills=0;this.roundKills=0;this.respawnTimer=0;this.lastFireTime=0;
+    // Power-up state
+    this.shield=false;this.ghost=false;this.ghostTimer=0;
+    this.rapid=false;this.rapidTimer=0;
+    this.triple=false;this.tripleTimer=0;
+    this.bounceBonus=false;this.bounceTimer=0;
+    this.wallBreak=false;this.wallBreakTimer=0;
+    this.shrapnel=false;this.shrapnelTimer=0;
+    this.hspeed=false;this.hspeedFuel=0;
+    this.radarPing=false;this.radarPulses=[];this.radarNextPulse=0;this.radarPulsesLeft=0;
+    this.mineCount=0;this.mineCharge=0;
+    // Muzzle flash
+    this.muzzleFlash=0;
+    this.spawnShieldTimer=0;
+    this.tunnelCooldown=0;this.teleportTimer=0;
+    // Screen shake contribution
+    this.shakeAmt=0;
+    this.moveAnim=0;
+    this.vx=0;this.vy=0;
+    this.turnInput=0;
+    this.lastTrackX=x;this.lastTrackY=y;
+    this.botNav={
+      path:[],
+      waypoint:null,
+      lastPlanTime:-1,
+      startKey:'',
+      goalKey:'',
+      lastX:x,
+      lastY:y,
+      stuckMs:0,
+      forceRepath:false,
+    };
+  }
+  get col(){return TANK_DEF[this.type].col;}
+  get dark(){return TANK_DEF[this.type].dark;}
+  get hi(){return TANK_DEF[this.type].hi;}
+  get name(){return TANK_DEF[this.type].name;}
+  get maxBounces(){return this.baseBounces+(this.bounceBonus?6:0);}
+  get curFireMs(){return this.rapid?this.fireMs*.38:this.fireMs;}
+  get hasBreachShots(){return this.wallBreak&&this.wallBreakTimer>0;}
+
+  applyPU(type,audio){
+    audio.powerup();
+    switch(type){
+      case'RAPID':  this.rapid=true; this.rapidTimer=PU_DEF.RAPID.dur; break;
+      case'TRIPLE': this.triple=true;this.tripleTimer=PU_DEF.TRIPLE.dur;break;
+      case'SHIELD': this.shield=true;break;
+      case'BOUNCE': this.bounceBonus=true;this.bounceTimer=PU_DEF.BOUNCE.dur;break;
+      case'BREACH': this.wallBreak=true;this.wallBreakTimer=PU_DEF.BREACH.dur;break;
+      case'GHOST':     this.ghost=true;    this.ghostTimer=PU_DEF.GHOST.dur;       break;
+      case'SHRAPNEL':  this.shrapnel=true; this.shrapnelTimer=PU_DEF.SHRAPNEL.dur; break;
+      case'HSPEED':    this.hspeed=true;   this.hspeedFuel=PU_DEF.HSPEED.dur;      break;
+      case'MINE':      this.mineCount=3;   this.mineCharge=0;                       break;
+      case'RADAR':
+        this.radarPing=true;
+        this.radarPulses=[];
+        this.radarNextPulse=0; // emit first pulse on next update
+        this.radarPulsesLeft=RADAR_PULSE_COUNT;
+        break;
+    }
+  }
+
+  update(input,dt,arena,bullets,audio,now,controlState=null,landMines=null){
+    // Tick PU timers
+    if(this.rapid){this.rapidTimer-=dt;if(this.rapidTimer<=0)this.rapid=false;}
+    if(this.triple){this.tripleTimer-=dt;if(this.tripleTimer<=0)this.triple=false;}
+    if(this.bounceBonus){this.bounceTimer-=dt;if(this.bounceTimer<=0)this.bounceBonus=false;}
+    if(this.wallBreak){this.wallBreakTimer-=dt;if(this.wallBreakTimer<=0)this.wallBreak=false;}
+    if(this.ghost){this.ghostTimer-=dt;if(this.ghostTimer<=0)this.ghost=false;}
+    if(this.shrapnel){this.shrapnelTimer-=dt;if(this.shrapnelTimer<=0)this.shrapnel=false;}
+    // Radar ping: emit pulses on schedule, advance each pulse radius
+    if(this.radarPing&&this.radarPulsesLeft>0&&now>=this.radarNextPulse){
+      this.radarPulses.push({r:0});
+      this.radarNextPulse=now+RADAR_PULSE_INTERVAL;
+      this.radarPulsesLeft--;
+      if(this.radarPulsesLeft===0)this.radarPing=false;
+    }
+    if(this.radarPulses.length>0){
+      const dr=RADAR_PULSE_SPD*(dt/1000);
+      this.radarPulses.forEach(p=>{p.r+=dr;});
+      this.radarPulses=this.radarPulses.filter(p=>p.r<RADAR_PULSE_MAX+RADAR_PULSE_WIDTH);
+    }
+    if(this.muzzleFlash>0)this.muzzleFlash-=dt;
+    if(this.spawnShieldTimer>0)this.spawnShieldTimer-=dt;
+    if(this.tunnelCooldown>0)this.tunnelCooldown-=dt;
+    if(this.teleportTimer>0)this.teleportTimer-=dt;
+    if(this.shakeAmt>0)this.shakeAmt-=dt*.003;
+
+    if(!this.alive){
+      this.respawnTimer-=dt;
+      return;
+    }
+
+    const hold=(key)=>controlState?!!controlState.held?.[key]:input.isDown(this.controls[key]);
+    const tap=(key)=>controlState?!!controlState.pressed?.[key]:input.wasPressed(this.controls[key]);
+
+    let moving=false;
+    const touchVector=controlState?.touchVector||(!controlState?input.getTouchVector(this.playerNum):null);
+    this.turnInput=0;
+    if(touchVector){
+      const targetAngle=Math.atan2(touchVector.x,-touchVector.y);
+      let delta=((targetAngle-this.angle+Math.PI*3)%(Math.PI*2))-Math.PI;
+      const turnLimit=this.rot*2.8;
+      const prevAngle=this.angle;
+      if(Math.abs(delta)<=turnLimit)this.angle=targetAngle;
+      else this.angle+=Math.sign(delta)*turnLimit;
+      const actualTurn=((this.angle-prevAngle+Math.PI*3)%(Math.PI*2))-Math.PI;
+      this.turnInput=Math.abs(actualTurn)>0.001?Math.max(-1,Math.min(1,actualTurn/this.rot)):0;
+      const moveScale=Math.max(.2,touchVector.magnitude);
+      const curSpd=this.speed*(this.hspeed?2.1:1.0);
+      const tvx=Math.sin(this.angle)*curSpd*moveScale*1.15;
+      const tvy=-Math.cos(this.angle)*curSpd*moveScale*1.15;
+      this.vx+=(tvx-this.vx)*0.22;this.vy+=(tvy-this.vy)*0.22;
+      moving=true;
+    }else{
+      // Rotate
+      if(hold('left')) this.angle-=this.rot;
+      if(hold('right'))this.angle+=this.rot;
+      this.turnInput=(hold('left')?-1:0)+(hold('right')?1:0);
+
+      // Move
+      const curSpd=this.speed*(this.hspeed?2.1:1.0);
+      const fwd=hold('up'),bck=hold('down');
+      if(fwd){
+        const tvx=Math.sin(this.angle)*curSpd,tvy=-Math.cos(this.angle)*curSpd;
+        this.vx+=(tvx-this.vx)*0.22;this.vy+=(tvy-this.vy)*0.22;
+        moving=true;
+      }else if(bck){
+        const tvx=-Math.sin(this.angle)*curSpd*.7,tvy=Math.cos(this.angle)*curSpd*.7;
+        this.vx+=(tvx-this.vx)*0.22;this.vy+=(tvy-this.vy)*0.22;
+        moving=true;
+      }else{
+        this.vx*=0.90;this.vy*=0.90;
+      }
+    }
+    this.x+=this.vx;this.y+=this.vy;
+    if(moving||Math.hypot(this.vx,this.vy)>0.15)this.moveAnim+=.2;
+    // HIGH SPEED fuel depletes only while the tank is actually moving
+    if(this.hspeed){
+      if(moving||Math.hypot(this.vx,this.vy)>0.25)this.hspeedFuel-=dt;
+      if(this.hspeedFuel<=0){this.hspeed=false;this.hspeedFuel=0;}
+    }
+
+    // Wall resolve
+    if(!this.ghost)this.resolveWalls(arena);
+    else{this.x=Math.max(16,Math.min(W-16,this.x));this.y=Math.max(HUD+16,Math.min(ARENA_BOTTOM-16,this.y));}
+
+    // Fire
+    const fireHeld=hold('fire')||(!controlState&&input.isTouchPlayer(this.playerNum)&&input.fire.active);
+    const fireTapped=tap('fire')||(!controlState&&input.isTouchPlayer(this.playerNum)&&input.wasPressed('TouchFire'));
+    // Mine charge — hold fire 3s to deploy a mine (CPU tanks skip mine logic)
+    if(!this.isCPU&&this.mineCount>0&&landMines){
+      if(fireHeld){
+        this.mineCharge=Math.min(this.mineCharge+dt,3000);
+        if(this.mineCharge>=3000){
+          // Deploy mine from the back of the tank
+          const mx=this.x-Math.sin(this.angle)*22;
+          const my=this.y+Math.cos(this.angle)*22;
+          landMines.push(new LandMine(mx,my,this.playerNum));
+          audio.powerup();
+          this.mineCount--;
+          if(this.mineCount<=0)this.mineCharge=0;
+          else this.mineCharge=0;
+        }
+      }else{
+        this.mineCharge=0;
+      }
+    }else if(!fireHeld){
+      this.mineCharge=0;
+    }
+    // Block normal fire while mine charge is building (>200ms = committed to mining)
+    const mineCharging=!this.isCPU&&this.mineCount>0&&this.mineCharge>200;
+    const wantsFire=!mineCharging&&((this.rapid?fireHeld:fireTapped)||!!controlState?.held?.fire);
+    if(wantsFire&&this.spawnShieldTimer<=0&&now-this.lastFireTime>this.curFireMs){
+      this.doFire(bullets,audio,now);
+    }
+  }
+
+  resolveWalls(arena){
+    const r=15;
+    const cc=Math.floor(this.x/TS),cr=Math.floor((this.y-HUD)/TS);
+    for(let dr=-1;dr<=1;dr++){
+      for(let dc=-1;dc<=1;dc++){
+        const row=cr+dr,col=cc+dc;
+        if(!arena.isWall(col,row))continue;
+        const wx=col*TS,wy=row*TS+HUD;
+        const cx=Math.max(wx,Math.min(this.x,wx+TS));
+        const cy=Math.max(wy,Math.min(this.y,wy+TS));
+        const dx=this.x-cx,dy=this.y-cy;
+        const d=Math.hypot(dx,dy);
+        if(d<r&&d>0){const push=r-d;this.x+=dx/d*push;this.y+=dy/d*push;}
+        else if(d===0){this.x+=r;}
+      }
+    }
+    this.x=Math.max(r,Math.min(W-r,this.x));
+    this.y=Math.max(HUD+r,Math.min(H-r,this.y));
+  }
+
+  doFire(bullets,audio,now){
+    this.lastFireTime=now;
+    this.muzzleFlash=120;
+    const bl=18;
+    const bx=this.x+Math.sin(this.angle)*bl;
+    const by=this.y-Math.cos(this.angle)*bl;
+    const pan=(this.x/W)*2-1;
+    audio.shoot(pan*.5);
+    const hasShrap=this.shrapnel&&this.shrapnelTimer>0;
+    if(this.triple){
+      [-0.18,0,.18].forEach(sp=>{
+        bullets.push(new Bullet(bx,by,this.angle+sp,this,this.maxBounces,this.col,this.hasBreachShots,hasShrap));
+      });
+    }else{
+      bullets.push(new Bullet(bx,by,this.angle,this,this.maxBounces,this.col,this.hasBreachShots,hasShrap));
+    }
+  }
+
+  die(ps,audio){
+    this.alive=false;this.respawnTimer=RESPAWN_MS;
+    this.shield=false;this.ghost=false;this.rapid=false;this.triple=false;this.bounceBonus=false;this.wallBreak=false;
+    this.wallBreakTimer=0;this.shrapnel=false;this.shrapnelTimer=0;this.hspeed=false;this.hspeedFuel=0;
+    this.radarPing=false;this.radarPulses=[];this.radarPulsesLeft=0;
+    this.mineCount=0;this.mineCharge=0;
+    // White flash core
+    ps.emit(this.x,this.y,'#ffffff',24,16,5,7);
+    // Bright yellow-white inner burst
+    ps.emit(this.x,this.y,'#ffff99',20,13,6,12);
+    // Orange fireball
+    ps.emit(this.x,this.y,'#ff9900',28,10,8,30);
+    ps.emit(this.x,this.y,'#ff5500',24,8,9,40);
+    // Deep red outer ring
+    ps.emit(this.x,this.y,'#cc1100',18,12,6,22);
+    // Tank-colored debris chunks
+    for(let i=0;i<6;i++)ps.emit(this.x,this.y,this.col,5,7+i*1.5,4+i,45+i*10);
+    // Dark smoke billows (slow, large, long-lived)
+    ps.emit(this.x,this.y,'#1a1a1a',14,3,14,80);
+    ps.emit(this.x,this.y,'#333333',12,2,18,100);
+    // Bright embers
+    ps.emit(this.x,this.y,'#ffcc00',16,14,2,18);
+    const pan=(this.x/W)*2-1;
+    audio.explode(pan*.5);
+    this.shakeAmt=2.5;
+  }
+
+  respawn(arena){
+    // Pick spawn zone based on player
+    const zoneRow=this.playerNum===1?[ROWS-10,ROWS-5]:[2,7];
+    for(let i=0;i<80;i++){
+      const col=1+Math.floor(Math.random()*(COLS-2));
+      const row=zoneRow[0]+Math.floor(Math.random()*(zoneRow[1]-zoneRow[0]));
+      if(!arena.isWall(col,row)){
+        this.x=col*TS+TS/2;this.y=row*TS+TS/2+HUD;
+        this.botNav.path=[];this.botNav.waypoint=null;this.botNav.lastPlanTime=-1;
+        this.botNav.startKey='';this.botNav.goalKey='';this.botNav.lastX=this.x;this.botNav.lastY=this.y;
+        this.botNav.stuckMs=0;this.botNav.forceRepath=false;
+        this.alive=true;this.respawnTimer=0;this.spawnShieldTimer=2000;return;
+      }
+    }
+    // Fallback center
+    this.x=W/2;this.y=H/2;
+    this.botNav.path=[];this.botNav.waypoint=null;this.botNav.lastPlanTime=-1;
+    this.botNav.startKey='';this.botNav.goalKey='';this.botNav.lastX=this.x;this.botNav.lastY=this.y;
+    this.botNav.stuckMs=0;this.botNav.forceRepath=false;
+    this.alive=true;this.respawnTimer=0;this.spawnShieldTimer=2000;
+  }
+
+  draw(ctx,now){
+    if(!this.alive)return;
+    const d=TANK_DEF[this.type];
+    const tread=Math.sin(this.moveAnim)*1.5;
+    ctx.save();
+    ctx.translate(this.x,this.y);ctx.rotate(this.angle);
+    if(this.ghost)ctx.globalAlpha=0.38;
+    else if(this.spawnShieldTimer>0)ctx.globalAlpha=0.35+0.65*(Math.sin(now*0.05)>0?1:0);
+    else if(this.teleportTimer>0)ctx.globalAlpha=1-(this.teleportTimer/500);
+
+    // Drop shadow
+    ctx.shadowColor='rgba(0,0,0,.6)';ctx.shadowBlur=8;ctx.shadowOffsetX=3;ctx.shadowOffsetY=3;
+
+    // Treads
+    ctx.fillStyle='#111';
+    ctx.fillRect(-17,-14,7,28);
+    ctx.fillRect(10,-14,7,28);
+    ctx.shadowOffsetX=0;ctx.shadowOffsetY=0;ctx.shadowBlur=0;
+    // Tread detail
+    ctx.fillStyle='#2a2a2a';
+    for(let i=0;i<7;i++){
+      const oy=((tread+i*4)%28)-14;
+      ctx.fillRect(-17,oy,7,2.5);
+      ctx.fillRect(10,oy,7,2.5);
+    }
+    ctx.fillStyle='#333';
+    for(let i=0;i<7;i++){
+      ctx.fillRect(-17,-13+i*4,7,1);
+      ctx.fillRect(10,-13+i*4,7,1);
+    }
+
+    // Hull
+    ctx.fillStyle=d.dark;ctx.fillRect(-10,-13,20,26);
+    ctx.fillStyle=d.col; ctx.fillRect(-9,-12,18,24);
+    // Highlight
+    ctx.fillStyle='rgba(255,255,255,.13)';
+    ctx.fillRect(-9,-12,18,4);ctx.fillRect(-9,-12,4,24);
+    // Shadow edge
+    ctx.fillStyle='rgba(0,0,0,.25)';
+    ctx.fillRect(8,-12,1,24);ctx.fillRect(-9,11,18,1);
+    // Center stripe
+    ctx.fillStyle=d.dark;ctx.fillRect(-9,-2,18,4);
+    // Rivets
+    ctx.fillStyle=d.dark;
+    [[-8,-10],[7,-10],[-8,9],[7,9]].forEach(([rx,ry])=>{
+      ctx.beginPath();ctx.arc(rx,ry,1.8,0,Math.PI*2);ctx.fill();
+    });
+    // Hatch
+    ctx.fillStyle=d.dark;
+    ctx.beginPath();ctx.arc(0,3,5.5,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle=d.col;
+    ctx.beginPath();ctx.arc(0,3,4,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,.3)';
+    ctx.beginPath();ctx.arc(-1,2,2,0,Math.PI*2);ctx.fill();
+
+    // Turret base
+    ctx.fillStyle=d.dark;ctx.fillRect(-6,-6,12,12);
+    ctx.fillStyle=d.col; ctx.fillRect(-5,-5,10,10);
+    ctx.fillStyle=d.hi; ctx.fillRect(-5,-5,10,2);
+
+    // Barrel
+    ctx.shadowColor=d.col;ctx.shadowBlur=5;
+    ctx.fillStyle=d.dark;ctx.fillRect(-3.5,-20,7,20);
+    ctx.fillStyle='#444';   ctx.fillRect(-2.5,-20,5,19);
+    ctx.fillStyle=d.hi;     ctx.fillRect(-2.5,-20,2,19);
+    // Muzzle brake
+    ctx.fillStyle=d.dark;ctx.fillRect(-4.5,-22,9,4);
+    ctx.fillStyle='#666';   ctx.fillRect(-3.5,-21,7,3);
+    ctx.shadowBlur=0;
+
+    // Muzzle flash
+    if(this.muzzleFlash>0){
+      const alpha=Math.min(1,this.muzzleFlash/80);
+      ctx.globalAlpha=(this.ghost?.38:1)*alpha;
+      ctx.shadowColor='#ffee88';ctx.shadowBlur=20;
+      ctx.fillStyle='#ffee88';
+      ctx.beginPath();ctx.arc(0,-24,7*alpha,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#fff';
+      ctx.beginPath();ctx.arc(0,-24,3*alpha,0,Math.PI*2);ctx.fill();
+      ctx.shadowBlur=0;
+      ctx.globalAlpha=this.ghost?.38:1;
+    }
+
+    // Shield
+    if(this.shield){
+      ctx.globalAlpha=(this.ghost?.38:1)*(.55+.3*Math.sin(now*.006));
+      ctx.strokeStyle=PU_DEF.SHIELD.col;ctx.lineWidth=3;
+      ctx.shadowColor=PU_DEF.SHIELD.col;ctx.shadowBlur=14;
+      ctx.beginPath();ctx.arc(0,0,24,0,Math.PI*2);ctx.stroke();
+      ctx.shadowBlur=0;
+    }
+
+    // Mine charge arc — fills up behind tank as player holds fire
+    if(this.mineCount>0&&this.mineCharge>0){
+      const pct=this.mineCharge/3000;
+      ctx.strokeStyle=pct>0.85?'#ff6622':'#cc4400';
+      ctx.lineWidth=3;
+      ctx.shadowColor='#cc4400';ctx.shadowBlur=8*pct;
+      ctx.beginPath();
+      ctx.arc(0,0,27,-Math.PI/2,-Math.PI/2+Math.PI*2*pct);
+      ctx.stroke();
+      ctx.shadowBlur=0;
+    }
+
+    ctx.globalAlpha=1;ctx.restore();
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   ARENA
+══════════════════════════════════════════════════ */
+class Arena{
+  constructor(){this.grid=[];this.tunnels=[];}
+  load(mapData){this.grid=mapData.map(r=>[...r]);}
+  loadTunnels(pairs){
+    this.tunnels=pairs||[];
+    for(const t of this.tunnels){
+      this.grid[t.a.row][t.a.col]=0;
+      this.grid[t.b.row][t.b.col]=0;
+    }
+  }
+  getTunnelAt(col,row){
+    for(const t of this.tunnels){
+      if(t.a.col===col&&t.a.row===row)return{partner:t.b,col:t.col};
+      if(t.b.col===col&&t.b.row===row)return{partner:t.a,col:t.col};
+    }
+    return null;
+  }
+  inBounds(col,row){return col>=0&&col<COLS&&row>=0&&row<ROWS;}
+  isWall(col,row){
+    if(col<0||col>=COLS||row<0||row>=ROWS)return true;
+    return this.grid[row][col]===1;
+  }
+  cellCenter(col,row){
+    return{x:col*TS+TS/2,y:row*TS+TS/2+HUD};
+  }
+  worldToCell(x,y){
+    return{
+      col:Math.max(0,Math.min(COLS-1,Math.floor(x/TS))),
+      row:Math.max(0,Math.min(ROWS-1,Math.floor((y-HUD)/TS))),
+    };
+  }
+  solid(x,y){
+    if(x<0||x>=W||y<HUD||y>=ARENA_BOTTOM)return true;
+    return this.isWall(Math.floor(x/TS),Math.floor((y-HUD)/TS));
+  }
+  canTankOccupy(x,y,r=15){
+    if(x-r<0||x+r>W||y-r<HUD||y+r>ARENA_BOTTOM)return false;
+    const samples=[
+      [0,0],[r,0],[-r,0],[0,r],[0,-r],
+      [r*.7,r*.7],[r*.7,-r*.7],[-r*.7,r*.7],[-r*.7,-r*.7],
+    ];
+    return samples.every(([dx,dy])=>!this.solid(x+dx,y+dy));
+  }
+  isBreakableWall(col,row){
+    if(!this.isWall(col,row))return false;
+    return col>0&&col<COLS-1&&row>0&&row<ROWS-1;
+  }
+  breakWallAt(points){
+    if(!Array.isArray(points))return null;
+    for(const pt of points){
+      if(!pt)continue;
+      const {col,row}=this.worldToCell(pt.x,pt.y);
+      if(!this.isBreakableWall(col,row))continue;
+      this.grid[row][col]=0;
+      return this.cellCenter(col,row);
+    }
+    return null;
+  }
+  randomFloor(){
+    for(let i=0;i<200;i++){
+      const c=1+Math.floor(Math.random()*(COLS-2));
+      const r=1+Math.floor(Math.random()*(ROWS-2));
+      if(!this.isWall(c,r))return{x:c*TS+TS/2,y:r*TS+TS/2+HUD};
+    }
+    return{x:W/2,y:H/2};
+  }
+
+  draw(ctx,now){
+    // Floor
+    ctx.fillStyle=PAL.floor;
+    ctx.fillRect(0,HUD,W,AH);
+    // Grid lines
+    ctx.strokeStyle=PAL.grid;ctx.lineWidth=1;
+    for(let c=0;c<=COLS;c++){ctx.beginPath();ctx.moveTo(c*TS,HUD);ctx.lineTo(c*TS,ARENA_BOTTOM);ctx.stroke();}
+    for(let r=0;r<=ROWS;r++){ctx.beginPath();ctx.moveTo(0,HUD+r*TS);ctx.lineTo(W,HUD+r*TS);ctx.stroke();}
+    // Walls
+    for(let row=0;row<ROWS;row++){
+      for(let col=0;col<COLS;col++){
+        if(this.grid[row][col]!==1)continue;
+        const wx=col*TS,wy=row*TS+HUD;
+        // Shadow
+        ctx.fillStyle=PAL.wallSH;
+        ctx.fillRect(wx+3,wy+3,TS,TS);
+        // Main
+        ctx.fillStyle=PAL.wall;
+        ctx.fillRect(wx,wy,TS,TS);
+        // Highlight edge (top+left)
+        ctx.fillStyle=PAL.wallHL;
+        ctx.fillRect(wx,wy,TS,2);
+        ctx.fillRect(wx,wy,2,TS);
+        // Groove detail
+        ctx.strokeStyle='rgba(0,0,0,.4)';ctx.lineWidth=1;
+        ctx.strokeRect(wx+4,wy+4,TS-8,TS-8);
+        // Rivet dots
+        ctx.fillStyle='rgba(255,255,255,.06)';
+        [[4,4],[TS-6,4],[4,TS-6],[TS-6,TS-6]].forEach(([dx,dy])=>{
+          ctx.beginPath();ctx.arc(wx+dx,wy+dy,2,0,Math.PI*2);ctx.fill();
+        });
+      }
+    }
+    // Tunnels
+    for(const t of this.tunnels){
+      for(const ep of [t.a,t.b]){
+        const wx=ep.col*TS,wy=ep.row*TS+HUD;
+        const cx=wx+TS/2,cy=wy+TS/2;
+        const pulse=0.65+0.35*Math.sin(now*0.0045);
+        // Dark portal floor
+        ctx.fillStyle='rgba(0,0,0,0.6)';
+        ctx.fillRect(wx+1,wy+1,TS-2,TS-2);
+        // Colored border with glow
+        ctx.save();
+        ctx.shadowColor=t.col;ctx.shadowBlur=14*pulse;
+        ctx.strokeStyle=t.col;ctx.lineWidth=3;
+        ctx.strokeRect(wx+2.5,wy+2.5,TS-5,TS-5);
+        ctx.restore();
+        // Inner color fill
+        ctx.globalAlpha=0.15*pulse;
+        ctx.fillStyle=t.col;
+        ctx.fillRect(wx+5,wy+5,TS-10,TS-10);
+        ctx.globalAlpha=1;
+        // Rotating portal dots
+        for(let i=0;i<8;i++){
+          const a=(i/8)*Math.PI*2+now*0.002;
+          ctx.globalAlpha=((i+1)/8)*0.9*pulse;
+          ctx.fillStyle=t.col;
+          ctx.beginPath();
+          ctx.arc(cx+Math.cos(a)*TS*0.26,cy+Math.sin(a)*TS*0.26,2.5,0,Math.PI*2);
+          ctx.fill();
+        }
+        ctx.globalAlpha=1;
+      }
+    }
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   CRT OVERLAY  (drawn once, static)
+══════════════════════════════════════════════════ */
+function buildCRT(canvas){
+  const ctx=canvas.getContext('2d');
+  const w=canvas.width,h=canvas.height;
+  // Scanlines
+  for(let y=0;y<h;y+=2){
+    ctx.fillStyle='rgba(0,0,0,.18)';
+    ctx.fillRect(0,y,w,1);
+  }
+  // Vignette
+  const g=ctx.createRadialGradient(w/2,h/2,h*.25,w/2,h/2,h*.78);
+  g.addColorStop(0,'transparent');
+  g.addColorStop(1,'rgba(0,0,0,.7)');
+  ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
+  // Slight RGB fringe at edges (chromatic aberration illusion)
+  const eg=ctx.createLinearGradient(0,0,w,0);
+  eg.addColorStop(0,'rgba(255,0,0,.03)');
+  eg.addColorStop(.5,'transparent');
+  eg.addColorStop(1,'rgba(0,0,255,.03)');
+  ctx.fillStyle=eg;ctx.fillRect(0,0,w,h);
+}
+
+class OnlineSession{
+  constructor(url,onMessage,onDisconnect){
+    this.url=url;
+    this.onMessage=onMessage;
+    this.onDisconnect=onDisconnect;
+    this.ws=null;
+  }
+  connect(){
+    return new Promise((resolve,reject)=>{
+      let settled=false;
+      const ws=new WebSocket(this.url);
+      this.ws=ws;
+      ws.addEventListener('open',()=>{
+        settled=true;
+        resolve();
+      });
+      ws.addEventListener('message',(event)=>{
+        let msg;
+        try{msg=JSON.parse(event.data);}catch(err){return;}
+        this.onMessage?.(msg);
+      });
+      ws.addEventListener('error',()=>{
+        if(!settled)reject(new Error('Could not reach the online relay.'));
+      });
+      ws.addEventListener('close',()=>{
+        if(!settled)reject(new Error('The online relay closed before the room connected.'));
+        this.onDisconnect?.();
+      });
+    });
+  }
+  send(type,payload={}){
+    if(!this.ws||this.ws.readyState!==WebSocket.OPEN)return;
+    this.ws.send(JSON.stringify({type,...payload}));
+  }
+  close(){
+    if(!this.ws)return;
+    try{this.send('LEAVE');}catch(err){}
+    this.ws.close();
+    this.ws=null;
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   GAME CONTROLLER
+══════════════════════════════════════════════════ */
+const STATE={BOOT:0,SPLASH:1,MENU:2,SELECT:3,PLAYING:4,END:5,LOBBY:6,PAUSE:7};
+
+class Game{
+  constructor(){
+    this.gc=document.getElementById('gc');
+    this.ctx=this.gc.getContext('2d');
+    this.crt=document.getElementById('crt');
+    this.state=STATE.BOOT;
+    this.audio=new AudioManager();
+    this.input=new InputManager();
+    this.arena=new Arena();
+    this.ps=new ParticleSystem();
+    this.bullets=[];this.powerups=[];this.landMines=[];this.tanks=[];this.tracks=[];
+    this.onlineEvents=[];
+    this.now=0;this.dt=FRAME_MS;this.last=0;
+    this.accumulator=0;this.fixedStep=FRAME_MS;
+    this.shake=0;this.shakeX=0;this.shakeY=0;
+
+    // Boot
+    this.bootTimer=0;
+    this.bootLines=[];
+    this.bootLineIdx=0;
+    this.bootCharIdx=0;
+    this.bootLinePause=0;
+    this.bootReady=false;
+    this.bootSequence=[
+      'INITIALIZING SYSTEM...',
+      'LOADING COMBAT GRID...',
+      'CALIBRATING TURRETS...',
+      'ESTABLISHING SECURE LINK...',
+      'CLICK TO LAUNCH...'
+    ];
+
+    // Splash
+    this.splashTimer=0;this.splashBlink=true;this.splashBlinkTimer=0;
+
+    // Menu
+    this.menuSel=0;
+    this.menuMode='main';this.localModeSel=0;this.onlineModeSel=0;this.settingsSel=0;this.shareSel=0;this.singlePlayer=false;this.demoMode=false;
+    this.attractIdle=0;this.attractMode=false;this.attractPhase=0;this.attractTime=0;this.attractTankP=0;this._attractTanks=null;
+    this.gameMode='local';
+    this.menuNotice='';
+    this.shareNotice='';
+    this.shareQrImage=null;
+    this.shareQrStatus='idle';
+    this.menuItems=[
+      {label:'PLAY LOCAL',  fn:()=>this.goLocalMode()},
+      {label:'PLAY ONLINE', fn:()=>this.goOnlineMode()},
+      {label:'POWER-UPS',   fn:()=>this.goPowerups()},
+      {label:'SETTINGS',    fn:()=>this.goSettings()},
+      {label:'EXIT',        fn:()=>this.exitGame()},
+    ];
+    this.localItems=[
+      {label:'1 PLAYER', fn:()=>this.startLocalMode(true),  note:'SOLO VS CPU'},
+      {label:'2 PLAYER', fn:()=>this.startLocalMode(false), note:'COUCH BATTLE'},
+      {label:'DEMO',     fn:()=>this.startDemoMode(),       note:'CPU VS CPU'},
+      {label:'BACK', fn:()=>{this.menuMode='main';this.localModeSel=0;}, note:'RETURN TO MENU'},
+    ];
+    this.onlineItems=[
+      {label:'HOST ROOM', fn:()=>this.hostOnlineRoom(), note:'CREATE INVITE CODE'},
+      {label:'JOIN ROOM', fn:()=>this.joinOnlineRoom(), note:'ENTER A SHARED CODE'},
+      {label:'BACK', fn:()=>{this.menuMode='main';this.onlineModeSel=0;}, note:'RETURN TO MENU'},
+    ];
+    this.ricochetOn=true;
+    this.friendlyFire=false;
+    this.settingsItems=[
+      {label:()=>this.audio.muted?'AUDIO: OFF':'AUDIO: ON', fn:()=>this.toggleMute(), note:'TOGGLE THEME AND SFX'},
+      {label:()=>this.ricochetOn?'RICOCHET: ON':'RICOCHET: OFF', fn:()=>{this.ricochetOn=!this.ricochetOn;}, note:'TOGGLE BULLET BOUNCING'},
+      {label:()=>this.friendlyFire?'FRIENDLY FIRE: ON':'FRIENDLY FIRE: OFF', fn:()=>{this.friendlyFire=!this.friendlyFire;}, note:'OWN BULLETS CAN KILL YOU'},
+      {label:'SHOW QR CODE', fn:()=>this.goShareScreen(), note:'SHARE THE LIVE GAME LINK'},
+      {label:'BACK', fn:()=>{this.menuMode='main';this.settingsSel=0;this.menuNotice='';}, note:'RETURN TO MENU'},
+    ];
+    this.shareItems=[
+      {label:'COPY LINK', fn:()=>this.copyShareLink(), note:'COPY GAME ADDRESS'},
+      {label:'BACK', fn:()=>{this.menuMode='settings';this.shareSel=0;this.shareNotice='';}, note:'RETURN TO SETTINGS'},
+    ];
+
+    // Select
+    this.p1Sel=0;this.p2Sel=1;this.p1Ready=false;this.p2Ready=false;
+    this.selectBlink=0;this.startGameTimer=-1;
+
+    // Playing
+    this.mapIdx=0;this.roundNum=0;
+    this.puTimer=0;this.matchOver=false;
+    this.winner=null;this.winTimer=0;
+    this.killFeed=[];// {text,timer,col}
+    this.countdownVal=0;this.countdownTimer=0;
+
+    // End
+    this.endTimer=0;this.endSel=0;
+
+    // Pause
+    this.pauseSel=0;
+    this.pauseReason='';
+
+    // Online
+    this.onlineSession=null;
+    this.online={
+      active:false,connecting:false,playerNum:1,roomCode:'',
+      status:'',remoteConnected:false,inputTimer:0,snapshotTimer:0,
+      lastInputSig:'',guestWaiting:false,remoteFireHeld:false,
+    };
+  }
+
+  init(){
+    buildCRT(this.crt);
+    this.audio.init();
+    this.input.setTouchLayout(()=>this.getTouchLayout());
+    this.input.setTouchPlayerNum(1);
+    this.ctx.font='18px "Press Start 2P"';// preload
+    window.render_game_to_text=()=>this.renderGameToText();
+    window.advanceTime=(ms)=>this.advanceTime(ms);
+    requestAnimationFrame(ts=>this.loop(ts));
+  }
+
+  loop(ts){
+    if(!this.last)this.last=ts;
+    const frameDt=Math.min(ts-this.last,100);
+    this.last=ts;this.now=ts;
+    this.accumulator+=frameDt;
+    let clearedPressed=false;
+    while(this.accumulator>=this.fixedStep){
+      this.dt=this.fixedStep;
+      this.update();
+      this.accumulator-=this.fixedStep;
+      if(!clearedPressed){
+        this.input.clearPressed();
+        clearedPressed=true;
+      }
+    }
+    requestAnimationFrame(t=>this.loop(t));
+    this.draw();
+  }
+
+  advanceTime(ms){
+    this.accumulator+=Math.max(ms,this.fixedStep);
+    let clearedPressed=false;
+    while(this.accumulator>=this.fixedStep){
+      this.dt=this.fixedStep;
+      this.now+=this.fixedStep;
+      this.update();
+      this.accumulator-=this.fixedStep;
+      if(!clearedPressed){
+        this.input.clearPressed();
+        clearedPressed=true;
+      }
+    }
+    this.draw();
+  }
+
+  resetOnlineState(){
+    this.online={
+      active:false,connecting:false,playerNum:1,roomCode:'',
+      status:'',remoteConnected:false,inputTimer:0,snapshotTimer:0,
+      lastInputSig:'',guestWaiting:false,remoteFireHeld:false,
+    };
+    this.input.setTouchPlayerNum(1);
+  }
+  isOnlineMode(){return this.gameMode==='online'&&this.online.active;}
+  isOnlineHost(){return this.isOnlineMode()&&this.online.playerNum===1;}
+  isOnlineGuest(){return this.isOnlineMode()&&this.online.playerNum===2;}
+  getPlayerControls(playerNum){
+    if(playerNum===1&&this.singlePlayer&&!this.isOnlineMode()&&!this.input.shouldShowTouchControls()){
+      return{left:'ArrowLeft',right:'ArrowRight',up:'ArrowUp',down:'ArrowDown',fire:'Space'};
+    }
+    return playerNum===1
+      ? {left:'KeyA',right:'KeyD',up:'KeyW',down:'KeyS',fire:'Space'}
+      : {left:'ArrowLeft',right:'ArrowRight',up:'ArrowUp',down:'ArrowDown',fire:'Enter'};
+  }
+  getActiveMenuContext(){
+    if(this.menuMode==='local')return{items:this.localItems,selectedKey:'localModeSel',label:'LOCAL BATTLE SETUP'};
+    if(this.menuMode==='online')return{items:this.onlineItems,selectedKey:'onlineModeSel',label:'ONLINE OPS'};
+    if(this.menuMode==='settings')return{items:this.settingsItems,selectedKey:'settingsSel',label:'SYSTEM SETTINGS'};
+    if(this.menuMode==='share')return{items:this.shareItems,selectedKey:'shareSel',label:'SCAN OR COPY TO SHARE'};
+    if(this.menuMode==='powerups')return{items:[{label:'BACK',fn:()=>{this.menuMode='main';}}],selectedKey:'menuSel',label:'POWER-UP GUIDE'};
+    return{items:this.menuItems,selectedKey:'menuSel',label:this.audio.muted?'[AUDIO: OFF]':'[AUDIO: ON]'};
+  }
+  resolveMenuLabel(item){
+    return typeof item.label==='function'?item.label():item.label;
+  }
+  getShareUrl(){
+    const {origin,hostname}=window.location||{};
+    if(hostname==='localhost'||hostname==='127.0.0.1')return PROD_SHARE_URL;
+    return origin&&/^https?:/i.test(origin)?origin:PROD_SHARE_URL;
+  }
+  getShareQrSrc(){
+    return `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=12&data=${encodeURIComponent(this.getShareUrl())}`;
+  }
+  ensureShareQr(){
+    if(this.shareQrImage||this.shareQrStatus==='loading')return;
+    this.shareQrStatus='loading';
+    const img=new Image();
+    img.crossOrigin='anonymous';
+    img.onload=()=>{
+      this.shareQrImage=img;
+      this.shareQrStatus='ready';
+    };
+    img.onerror=()=>{
+      this.shareQrImage=null;
+      this.shareQrStatus='error';
+    };
+    img.src=this.getShareQrSrc();
+  }
+  blankControlState(){
+    return{
+      held:{left:false,right:false,up:false,down:false,fire:false},
+      pressed:{left:false,right:false,up:false,down:false,fire:false},
+      touchVector:null,
+    };
+  }
+  flagsToControlState(flags){
+    const held={left:!!flags.left,right:!!flags.right,up:!!flags.up,down:!!flags.down,fire:!!flags.fire};
+    return{held,pressed:{...held},touchVector:null};
+  }
+  getOnlineInputState(playerNum){
+    const controls=this.getPlayerControls(playerNum);
+    const touchVector=this.input.getTouchVector(playerNum);
+    return{
+      held:{
+        left:this.input.isDown(controls.left),
+        right:this.input.isDown(controls.right),
+        up:this.input.isDown(controls.up),
+        down:this.input.isDown(controls.down),
+        fire:this.input.isDown(controls.fire)||(this.input.isTouchPlayer(playerNum)&&this.input.isDown('TouchFire')),
+      },
+      pressed:{
+        left:this.input.wasPressed(controls.left),
+        right:this.input.wasPressed(controls.right),
+        up:this.input.wasPressed(controls.up),
+        down:this.input.wasPressed(controls.down),
+        fire:this.input.wasPressed(controls.fire)||(this.input.isTouchPlayer(playerNum)&&this.input.wasPressed('TouchFire')),
+      },
+      touchVector:touchVector?{x:+touchVector.x.toFixed(3),y:+touchVector.y.toFixed(3),magnitude:+touchVector.magnitude.toFixed(3)}:null,
+    };
+  }
+  canOpenPauseMenu(){
+    return this.singlePlayer||this.isOnlineMode();
+  }
+  getPauseOptions(){
+    if(this.singlePlayer||this.demoMode)return['RESUME','MAIN MENU'];
+    if(this.isOnlineMode())return['RESUME','SURRENDER'];
+    return['RESUME'];
+  }
+  openPauseMenu(source='local'){
+    if(!this.canOpenPauseMenu()||this.state!==STATE.PLAYING)return;
+    this.state=STATE.PAUSE;
+    this.pauseSel=0;
+    this.pauseReason=this.isOnlineMode()?'ONLINE MATCH PAUSED':'GAME PAUSED';
+    if(source==='local'&&this.isOnlineMode()){
+      this.onlineSession?.send('GAME_EVENT',{event:{kind:'PAUSE',paused:true}});
+    }
+  }
+  closePauseMenu(source='local'){
+    if(this.state!==STATE.PAUSE)return;
+    this.state=STATE.PLAYING;
+    if(source==='local'&&this.isOnlineMode()){
+      this.onlineSession?.send('GAME_EVENT',{event:{kind:'PAUSE',paused:false}});
+    }
+  }
+  forceSurrender(loserPlayerNum){
+    const winner=this.tanks.find(t=>t.playerNum!==loserPlayerNum);
+    if(!winner)return;
+    winner.kills=Math.max(winner.kills,KILLS_WIN);
+    this.matchOver=false;
+    this.winner=winner;
+    this.goEnd();
+  }
+  commitPauseAction(action){
+    if(action==='RESUME'){
+      this.audio.menuSelect();
+      this.closePauseMenu();
+      return;
+    }
+    if(action==='MAIN MENU'){
+      this.audio.menuSelect();
+      this.goMenu();
+      return;
+    }
+    if(action==='SURRENDER'){
+      this.audio.menuSelect();
+      if(this.isOnlineMode()){
+        this.onlineSession?.send('GAME_EVENT',{event:{kind:'SURRENDER',playerNum:this.online.playerNum}});
+        this.forceSurrender(this.online.playerNum);
+      }
+    }
+  }
+
+  /* ── SCREEN SHAKE ─────────────────────────────── */
+  addShake(amt){this.shake=Math.max(this.shake,amt);}
+  tickShake(){
+    if(this.shake>0){
+      this.shakeX=(Math.random()-.5)*this.shake*6;
+      this.shakeY=(Math.random()-.5)*this.shake*6;
+      this.shake-=this.dt*.006;
+      if(this.shake<0)this.shake=0;
+    }else{this.shakeX=0;this.shakeY=0;}
+  }
+
+  /* ══════════════════════════════════════════════
+     UPDATE dispatcher
+  ══════════════════════════════════════════════ */
+  update(){
+    this.tickShake();
+    switch(this.state){
+      case STATE.BOOT:    this.updateBoot();   break;
+      case STATE.SPLASH:  this.updateSplash(); break;
+      case STATE.MENU:    this.updateMenu();   break;
+      case STATE.SELECT:  this.updateSelect(); break;
+      case STATE.PLAYING: this.updatePlay();   break;
+      case STATE.END:     this.updateEnd();    break;
+      case STATE.LOBBY:   this.updateLobby();  break;
+      case STATE.PAUSE:   this.updatePause();  break;
+    }
+  }
+
+  /* ══════════════════════════════════════════════
+     BOOT
+  ══════════════════════════════════════════════ */
+  updateBoot(){
+    this.bootTimer+=this.dt;
+    if(!this.bootReady){
+      if(this.bootLinePause>0){
+        this.bootLinePause-=this.dt;
+      }else if(this.bootLineIdx<this.bootSequence.length){
+        const target=this.bootSequence[this.bootLineIdx];
+        if(this.bootTimer>=18){
+          this.bootTimer=0;
+          this.bootCharIdx++;
+          if(this.bootCharIdx>target.length){
+            this.bootLines.push(target);
+            this.bootLineIdx++;
+            this.bootCharIdx=0;
+            this.bootLinePause=this.bootLineIdx===this.bootSequence.length?450:220;
+            this.bootReady=this.bootLineIdx===this.bootSequence.length;
+          }
+        }
+      }
+      return;
+    }
+    if(this.input.anyPressed()){
+      this.audio.resume();
+      this.goSplash();
+    }
+  }
+
+  goSplash(){
+    this.state=STATE.SPLASH;this.splashTimer=0;this.splashBlink=true;this.splashBlinkTimer=0;
+    this.audio.setThemeMode('title');
+    this.audio.startTheme();
+  }
+
+  /* ══════════════════════════════════════════════
+     SPLASH
+  ══════════════════════════════════════════════ */
+  updateSplash(){
+    this.splashTimer+=this.dt;
+    this.splashBlinkTimer+=this.dt;
+    if(this.splashBlinkTimer>500){this.splashBlink=!this.splashBlink;this.splashBlinkTimer=0;}
+    if(this.splashTimer>600&&this.input.anyPressed()){
+      this.audio.resume();this.audio.menuSelect();this.goMenu();
+    }
+  }
+  goMenu(notice=''){
+    if(this.onlineSession){
+      this.onlineSession.close();
+      this.onlineSession=null;
+    }
+    this.resetOnlineState();
+    this.state=STATE.MENU;this.menuSel=0;this.menuMode='main';this.localModeSel=0;this.onlineModeSel=0;this.settingsSel=0;this.shareSel=0;this.startGameTimer=-1;
+    this.singlePlayer=false;this.demoMode=false;
+    this.gameMode='local';
+    this.menuNotice=notice;
+    this.shareNotice='';
+    this.audio.setThemeMode('title');
+  }
+  goLocalMode(){this.menuMode='local';this.localModeSel=0;this.menuNotice='';}
+  goOnlineMode(){this.menuMode='online';this.onlineModeSel=0;this.menuNotice='';}
+  goSettings(){this.menuMode='settings';this.settingsSel=0;this.menuNotice='';}
+  goPowerups(){this.menuMode='powerups';this.menuNotice='';}
+  goShareScreen(){
+    this.menuMode='share';
+    this.shareSel=0;
+    this.shareNotice='';
+    this.ensureShareQr();
+  }
+  startLocalMode(singlePlayer){
+    this.gameMode='local';
+    this.singlePlayer=singlePlayer;
+    this.demoMode=false;
+    this.input.setTouchPlayerNum(1);
+    this.goSelect();
+  }
+  startDemoMode(){
+    this.gameMode='local';
+    this.singlePlayer=false;
+    this.demoMode=true;
+    // Pick two distinct random tanks
+    this.p1Sel=Math.floor(Math.random()*TANK_ORDER.length);
+    this.p2Sel=(this.p1Sel+1+Math.floor(Math.random()*(TANK_ORDER.length-1)))%TANK_ORDER.length;
+    this.p1Ready=true;this.p2Ready=true;
+    this.input.setTouchPlayerNum(1);
+    this.startGame();
+  }
+  async ensureOnlineSession(){
+    if(this.onlineSession)return true;
+    this.online.connecting=true;
+    this.online.status='CONTACTING RELAY...';
+    try{
+      const session=new OnlineSession(getSocketUrl(),msg=>this.handleOnlineMessage(msg),()=>this.handleOnlineDisconnect());
+      await session.connect();
+      this.onlineSession=session;
+      this.online.connecting=false;
+      return true;
+    }catch(err){
+      this.online.connecting=false;
+      this.menuNotice=err.message||'Online relay unreachable.';
+      return false;
+    }
+  }
+  async hostOnlineRoom(){
+    if(this.online.connecting)return;
+    this.gameMode='online';
+    if(!await this.ensureOnlineSession())return;
+    this.online.active=true;
+    this.online.status='ALLOCATING ROOM...';
+    this.onlineSession.send('CREATE_ROOM');
+  }
+  async joinOnlineRoom(){
+    if(this.online.connecting)return;
+    const code=(window.prompt('Enter invite code')||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6);
+    if(!code){
+      this.menuNotice='Join cancelled.';
+      return;
+    }
+    this.gameMode='online';
+    if(!await this.ensureOnlineSession())return;
+    this.online.active=true;
+    this.online.status='JOINING ROOM '+code+'...';
+    this.onlineSession.send('JOIN_ROOM',{code});
+  }
+  updateLobby(){
+    const tap=this.input.consumeTap();
+    if(tap&&this.handleLobbyTap(tap))return;
+    if(this.input.wasPressed('Escape')){
+      this.audio.menuMove();
+      this.goMenu('Room closed.');
+      return;
+    }
+    if(this.input.wasPressed('Enter')||this.input.wasPressed('Space')||this.input.wasPressed('NumpadEnter')){
+      this.copyRoomCode();
+    }
+  }
+
+  /* ══════════════════════════════════════════════
+     MENU
+  ══════════════════════════════════════════════ */
+  updateMenu(){
+    // Attract mode — exit on any input, advance animation
+    if(this.attractMode){
+      const exit=this.input.wasPressed('Enter')||this.input.wasPressed('Space')||
+                 this.input.wasPressed('Escape')||this.input.wasPressed('ArrowDown')||
+                 this.input.wasPressed('ArrowUp')||this.input.wasPressed('KeyW')||
+                 this.input.wasPressed('KeyS')||!!this.input.consumeTap();
+      if(exit){this.attractMode=false;this.attractIdle=0;}
+      this.attractTime+=this.dt;
+      this.attractTankP+=this.dt*0.00016; // full oval loop in ~6s
+      const DUR=[5000,9000,7000];
+      if(this.attractTime>DUR[this.attractPhase]){
+        this.attractPhase=(this.attractPhase+1)%3;
+        this.attractTime=0;
+      }
+      return;
+    }
+    // Idle tracking — only count idle time when on main menu
+    if(this.menuMode==='main') this.attractIdle+=this.dt;
+    else this.attractIdle=0;
+    if(this.attractIdle>10000){
+      this.attractMode=true;this.attractPhase=0;this.attractTime=0;this.attractTankP=0;
+      this.attractIdle=0;return;
+    }
+    const {items:allItems,selectedKey:selKey}=this.getActiveMenuContext();
+    const tap=this.input.consumeTap();
+    if(tap&&this.handleMenuTap(tap))return;
+    if(this.input.wasPressed('ArrowDown')||this.input.wasPressed('KeyS')){
+      do{this[selKey]=(this[selKey]+1)%allItems.length;}while(allItems[this[selKey]].dim);
+      this.attractIdle=0;this.audio.menuMove();
+    }
+    if(this.input.wasPressed('ArrowUp')||this.input.wasPressed('KeyW')){
+      do{this[selKey]=(this[selKey]-1+allItems.length)%allItems.length;}while(allItems[this[selKey]].dim);
+      this.attractIdle=0;this.audio.menuMove();
+    }
+    if(this.input.wasPressed('Enter')||this.input.wasPressed('Space')||this.input.wasPressed('NumpadEnter')){
+      const item=allItems[this[selKey]];
+      if(item.fn){this.attractIdle=0;this.audio.menuSelect();item.fn();}
+    }
+    if(this.input.wasPressed('Escape')){
+      if(this.menuMode==='share'){
+        this.menuMode='settings';
+        this.shareSel=0;
+        this.shareNotice='';
+        this.attractIdle=0;this.audio.menuMove();
+        return;
+      }
+      if(this.menuMode==='local'||this.menuMode==='online'||this.menuMode==='settings'||this.menuMode==='powerups'){
+        this.menuMode='main';this.localModeSel=0;
+        this.onlineModeSel=0;
+        this.settingsSel=0;
+        this.attractIdle=0;this.audio.menuMove();
+      }
+    }
+  }
+  toggleMute(){
+    this.audio.setMuted(!this.audio.muted);
+    if(this.menuMode==='share')this.shareNotice=this.audio.muted?'AUDIO MUTED':'AUDIO ENABLED';
+  }
+  copyShareLink(){
+    const url=this.getShareUrl();
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(url)
+        .then(()=>{this.shareNotice='LINK COPIED';})
+        .catch(()=>{this.shareNotice='COPY FAILED';});
+    }else{
+      this.shareNotice='COPY NOT SUPPORTED';
+    }
+  }
+  exitGame(){
+    try{window.close();}catch(e){}
+    this.goSplash();
+  }
+  goSelect(){
+    this.state=STATE.SELECT;
+    this.p1Sel=0;this.p2Sel=1;this.p1Ready=false;this.p2Ready=this.singlePlayer;
+    this.startGameTimer=-1;
+    this.audio.setThemeMode('title');
+    if(this.isOnlineMode()){
+      this.input.setTouchPlayerNum(this.online.playerNum);
+      const localSel=this.online.playerNum===1?this.p1Sel:this.p2Sel;
+      this.onlineSession?.send('TANK_READY',{tankType:TANK_ORDER[localSel],ready:false});
+    }else this.input.setTouchPlayerNum(1);
+  }
+  getOnlineLocalPlayer(){
+    return this.isOnlineMode()?this.online.playerNum:1;
+  }
+  getSelectActivePlayer(){
+    if(this.isOnlineMode()){
+      const localPlayer=this.getOnlineLocalPlayer();
+      return localPlayer===1?(!this.p1Ready?1:0):(!this.p2Ready?2:0);
+    }
+    return !this.p1Ready?1:!this.p2Ready?2:0;
+  }
+  updateOnlineSelection(index,ready){
+    const localPlayer=this.getOnlineLocalPlayer();
+    if(localPlayer===1){
+      this.p1Sel=index;
+      this.p1Ready=ready;
+    }else{
+      this.p2Sel=index;
+      this.p2Ready=ready;
+    }
+    this.onlineSession?.send('TANK_READY',{tankType:TANK_ORDER[index],ready});
+  }
+  handleOnlineMessage(msg){
+    switch(msg.type){
+      case 'ROOM_CREATED':
+        this.online.active=true;
+        this.online.playerNum=msg.playerNum||1;
+        this.online.roomCode=msg.code||'';
+        this.online.remoteConnected=false;
+        this.online.status='SHARE CODE '+this.online.roomCode+' WITH PLAYER 2';
+        this.input.setTouchPlayerNum(this.online.playerNum);
+        this.state=STATE.LOBBY;
+        this.copyRoomCode(true);
+        break;
+      case 'PLAYER_JOINED':
+        this.online.remoteConnected=true;
+        this.online.status='PLAYER 2 CONNECTED';
+        this.goSelect();
+        break;
+      case 'JOINED':
+        this.online.active=true;
+        this.online.playerNum=msg.playerNum||2;
+        this.online.roomCode=msg.code||'';
+        this.online.remoteConnected=true;
+        this.online.status='JOINED ROOM '+this.online.roomCode;
+        this.input.setTouchPlayerNum(this.online.playerNum);
+        this.goSelect();
+        break;
+      case 'TANK_READY':{
+        const idx=Math.max(0,TANK_ORDER.indexOf(msg.tankType));
+        const remoteReady=!!msg.ready;
+        if(msg.playerNum===1){
+          this.p1Sel=idx;
+          this.p1Ready=remoteReady;
+        }else if(msg.playerNum===2){
+          this.p2Sel=idx;
+          this.p2Ready=remoteReady;
+        }
+        break;
+      }
+      case 'REMOTE_INPUT':
+        if(this.isOnlineHost()){
+          const input=msg.input||this.blankControlState();
+          const heldFire=!!input.held?.fire;
+          if(!input.pressed)input.pressed={};
+          input.pressed.fire=!!input.pressed.fire||(heldFire&&!this.online.remoteFireHeld);
+          this.online.remoteFireHeld=heldFire;
+          this.online.remoteInput=input;
+        }
+        break;
+      case 'GAME_EVENT':
+        this.handleOnlineGameEvent(msg.event||{});
+        break;
+      case 'DISCONNECTED':
+        this.goMenu('Remote player disconnected.');
+        break;
+      case 'ERROR':
+        this.goMenu(msg.message||'Online room error.');
+        break;
+    }
+  }
+  handleOnlineDisconnect(){
+    if(this.online.connecting)return;
+    if(this.isOnlineMode()||this.state===STATE.LOBBY)this.goMenu('Online link lost.');
+  }
+  handleOnlineGameEvent(event){
+    if(!event||typeof event!=='object')return;
+    if(event.kind==='SNAPSHOT'&&this.isOnlineGuest()){
+      this.applyOnlineSnapshot(event.snapshot);
+    }else if(event.kind==='START_MATCH'&&this.isOnlineGuest()){
+      this.applyOnlineSnapshot(event.snapshot);
+    }else if(event.kind==='PAUSE'){
+      if(event.paused)this.openPauseMenu('remote');
+      else this.closePauseMenu('remote');
+    }else if(event.kind==='SURRENDER'){
+      this.forceSurrender(event.playerNum);
+    }else if(event.kind==='END_ACTION'){
+      if(event.action==='select'){
+        this.goSelect();
+      }else if(event.action==='menu'){
+        this.goMenu('Room closed.');
+      }
+    }
+  }
+  copyRoomCode(silent=false){
+    if(!this.online.roomCode)return;
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(this.online.roomCode)
+        .then(()=>{if(!silent)this.online.status='CODE COPIED: '+this.online.roomCode;})
+        .catch(()=>{if(!silent)this.online.status='SHARE CODE '+this.online.roomCode;});
+    }
+  }
+
+  /* ══════════════════════════════════════════════
+     TANK SELECT
+  ══════════════════════════════════════════════ */
+  updateSelect(){
+    this.selectBlink+=this.dt;
+    const tap=this.input.consumeTap();
+    if(tap&&this.handleSelectTap(tap))return;
+    if(this.isOnlineMode()){
+      const localPlayer=this.getOnlineLocalPlayer();
+      const selKeyPrev=localPlayer===1?this.p1Sel:this.p2Sel;
+      const ready=localPlayer===1?this.p1Ready:this.p2Ready;
+      if(!ready){
+        const leftPressed=localPlayer===1?this.input.wasPressed('KeyA'):this.input.wasPressed('ArrowLeft');
+        const rightPressed=localPlayer===1?this.input.wasPressed('KeyD'):this.input.wasPressed('ArrowRight');
+        const confirmPressed=localPlayer===1?this.input.wasPressed('Space'):(this.input.wasPressed('Enter')||this.input.wasPressed('NumpadEnter'));
+        if(leftPressed){
+          this.updateOnlineSelection((selKeyPrev-1+TANK_ORDER.length)%TANK_ORDER.length,false);
+          this.audio.menuMove();
+        }
+        if(rightPressed){
+          this.updateOnlineSelection((selKeyPrev+1)%TANK_ORDER.length,false);
+          this.audio.menuMove();
+        }
+        if(confirmPressed){
+          this.updateOnlineSelection(localPlayer===1?this.p1Sel:this.p2Sel,true);
+          this.audio.menuSelect();
+        }
+      }
+      if(this.p1Ready&&this.p2Ready&&this.isOnlineHost()&&this.startGameTimer<0){
+        this.startGameTimer=300;
+      }
+      if(this.startGameTimer>=0){
+        this.startGameTimer-=this.dt;
+        if(this.startGameTimer<=0)this.startOnlineMatch();
+      }
+    }else{
+      if(!this.p1Ready){
+        if(this.input.wasPressed('KeyA')){this.p1Sel=(this.p1Sel-1+4)%4;this.audio.menuMove();}
+        if(this.input.wasPressed('KeyD')){this.p1Sel=(this.p1Sel+1)%4;this.audio.menuMove();}
+        if(this.input.wasPressed('Space')){this.p1Ready=true;this.audio.menuSelect();}
+      }
+      if(this.singlePlayer){
+        this.p2Sel=(this.p1Sel+1)%TANK_ORDER.length;
+      }else if(!this.p2Ready){
+        if(this.input.wasPressed('ArrowLeft')){ this.p2Sel=(this.p2Sel-1+4)%4;this.audio.menuMove();}
+        if(this.input.wasPressed('ArrowRight')){this.p2Sel=(this.p2Sel+1)%4;this.audio.menuMove();}
+        if(this.input.wasPressed('Enter')||this.input.wasPressed('NumpadEnter')){this.p2Ready=true;this.audio.menuSelect();}
+      }
+      if(this.p1Ready&&this.p2Ready&&this.startGameTimer<0){
+        this.startGameTimer=300;
+      }
+      if(this.startGameTimer>=0){
+        this.startGameTimer-=this.dt;
+        if(this.startGameTimer<=0)this.startGame();
+      }
+    }
+    if(this.singlePlayer&&!this.isOnlineMode()){
+      this.p2Sel=(this.p1Sel+1)%TANK_ORDER.length;
+    }
+    if(this.input.wasPressed('Escape')){
+      this.goMenu();
+    }
+  }
+
+  /* ══════════════════════════════════════════════
+     START GAME
+  ══════════════════════════════════════════════ */
+  startGame(){
+    this.state=STATE.PLAYING;
+    this.audio.setThemeMode('game');
+    this.bullets=[];this.powerups=[];this.landMines=[];this.ps=new ParticleSystem();this.tracks=[];
+    this.onlineEvents=[];
+    this.puTimer=PU_INTERVAL;this.matchOver=false;this.winner=null;
+    this.killFeed=[];this.mapIdx=0;this.roundNum=0;this.startGameTimer=-1;
+
+    const mapData=MAPS[this.mapIdx%MAPS.length];
+    this.arena.load(mapData);
+    this.arena.loadTunnels(MAP_TUNNELS[this.mapIdx%MAPS.length]);
+
+    const c1=this.getPlayerControls(1);
+    const c2=this.getPlayerControls(2);
+
+    const t1type=TANK_ORDER[this.p1Sel];
+    const t2type=TANK_ORDER[this.p2Sel];
+
+    this.tanks=[
+      new Tank(t1type, W/2, ARENA_BOTTOM-TS*5-TS/2, 0,     c1, 1, this.demoMode),
+      new Tank(t2type, W/2, HUD+TS*3+TS/2, Math.PI,c2, 2, this.singlePlayer||this.demoMode),
+    ];
+    this.tanks.forEach(t=>{t.kills=0;t.roundKills=0;});
+    // Countdown
+    this.countdownVal=3;this.countdownTimer=0;
+    this.gameReady=false;
+    this._prevRoundKills=[0,0];
+    this.input.setTouchPlayerNum(this.isOnlineMode()?this.online.playerNum:1);
+    if(this.isOnlineMode()){
+      this.online.snapshotTimer=0;
+      this.online.inputTimer=0;
+      this.online.lastInputSig='';
+      this.online.remoteInput=this.blankControlState();
+      this.online.remoteFireHeld=false;
+    }
+  }
+  startOnlineMatch(){
+    if(!this.isOnlineHost())return;
+    this.startGame();
+    const snapshot=this.serializeOnlineSnapshot();
+    this.onlineSession?.send('GAME_EVENT',{event:{kind:'START_MATCH',snapshot}});
+    this.onlineSession?.send('GAME_EVENT',{event:{kind:'SNAPSHOT',snapshot}});
+  }
+
+  nextRound(){
+    this.roundNum++;
+    this.mapIdx++;
+    // Use procedural map for round 4+
+    const mapData=this.roundNum>=3?genMap():MAPS[(this.mapIdx)%MAPS.length];
+    this.arena.load(mapData);
+    this.arena.loadTunnels(this.roundNum>=3?this.genTunnels():MAP_TUNNELS[this.mapIdx%MAPS.length]);
+    this.bullets=[];this.powerups=[];this.landMines=[];this.puTimer=PU_INTERVAL;this.tracks=[];
+    this.tanks.forEach((t,i)=>{
+      t.alive=false;t.respawnTimer=0;t.roundKills=0;
+      t.shield=false;t.ghost=false;t.rapid=false;t.triple=false;t.bounceBonus=false;t.wallBreak=false;t.wallBreakTimer=0;
+      t.shrapnel=false;t.shrapnelTimer=0;t.hspeed=false;t.hspeedFuel=0;
+      t.radarPing=false;t.radarPulses=[];t.radarPulsesLeft=0;
+      t.respawn(this.arena);
+      t.angle=i===0?0:Math.PI;
+    });
+    this.countdownVal=3;this.countdownTimer=0;this.gameReady=false;
+    this.matchOver=false;this.winner=null;
+    this._prevRoundKills=[0,0];
+  }
+
+  /* ══════════════════════════════════════════════
+     PLAYING UPDATE
+  ══════════════════════════════════════════════ */
+  updatePlay(){
+    const tap=this.input.consumeTap();
+    if(this.canOpenPauseMenu()&&((tap&&this.handlePauseButtonTap(tap))||this.input.wasPressed('Escape'))){
+      this.audio.menuMove();
+      this.openPauseMenu();
+      return;
+    }
+    if(this.isOnlineGuest()){
+      this.sendOnlineInput();
+      this.ps.update();
+      return;
+    }
+    // Countdown: 3→2→1→GO!→start
+    if(!this.gameReady){
+      this.countdownTimer+=this.dt;
+      if(this.countdownTimer>1000){
+        this.countdownTimer=0;
+        if(this.countdownVal>0){
+          this.countdownVal--;
+          if(this.countdownVal===0)this.audio.countBeep(true);
+          else this.audio.countBeep(false);
+        }else{
+          this.gameReady=true;
+        }
+      }
+      if(this.isOnlineHost())this.broadcastOnlineSnapshot();
+      return;
+    }
+    if(this.matchOver){
+      this.winTimer+=this.dt;
+      this.ps.update();
+      if(this.winTimer>2500){
+        if(this.winner)this.winner.kills++;
+        if(this.winner&&this.winner.kills>=KILLS_WIN){
+          this.goEnd();
+        }else{
+          this.nextRound();
+        }
+      }
+      if(this.isOnlineHost())this.broadcastOnlineSnapshot();
+      return;
+    }
+
+    // Respawn
+    this.tanks.forEach(t=>{
+      if(!t.alive&&t.respawnTimer<=0)t.respawn(this.arena);
+    });
+
+    // Tank updates
+    this.tanks.forEach((t,i)=>{
+      let controlState=null;
+      if(t.isCPU)controlState=this.flagsToControlState(this.getBotInput(t,this.tanks[(i+1)%2]));
+      else if(this.isOnlineHost()&&t.playerNum===2)controlState=this.online.remoteInput||this.blankControlState();
+      t.update(this.input,this.dt,this.arena,this.bullets,this.audio,this.now,controlState,this.landMines);
+    });
+
+    // Track stamps
+    this.tracks.forEach(tr=>{tr.life-=0.005;});
+    this.tracks=this.tracks.filter(tr=>tr.life>0);
+    this.tanks.forEach(t=>{
+      if(!t.alive)return;
+      const dx=t.x-t.lastTrackX,dy=t.y-t.lastTrackY;
+      if(dx*dx+dy*dy>36){
+        this.tracks.push({x:t.x,y:t.y,angle:t.angle,col:t.dark,life:1});
+        t.lastTrackX=t.x;t.lastTrackY=t.y;
+      }
+    });
+
+    // Tunnel teleportation
+    this.tanks.forEach(t=>{
+      if(!t.alive||t.tunnelCooldown>0)return;
+      const cell=this.arena.worldToCell(t.x,t.y);
+      const tunnel=this.arena.getTunnelAt(cell.col,cell.row);
+      if(tunnel){
+        const dest=this.arena.cellCenter(tunnel.partner.col,tunnel.partner.row);
+        this.ps.emit(t.x,t.y,tunnel.col,14,5,3,28);
+        const ex1=t.x,ey1=t.y;
+        t.x=dest.x;t.y=dest.y;
+        this.ps.emit(t.x,t.y,tunnel.col,14,5,3,28);
+        t.tunnelCooldown=1600;
+        t.teleportTimer=500;
+        this.onlineEvents.push({type:'teleport',x1:ex1,y1:ey1,x2:t.x,y2:t.y,col:tunnel.col});
+      }
+    });
+
+    // Shake from tanks
+    this.tanks.forEach(t=>{if(t.shakeAmt>0){this.addShake(t.shakeAmt);t.shakeAmt=0;}});
+
+    // Bullets
+    this.bullets=this.bullets.filter(b=>b.active);
+    const _newBullets=[];
+    this.bullets.forEach(b=>b.update(this.arena,this.tanks,this.ps,this.audio,this.ricochetOn,this.friendlyFire,this.onlineEvents,_newBullets));
+    this.bullets.push(..._newBullets);
+
+    // Kill detection — track kills via tank.kills
+    // Check for new kills (compare to stored)
+    if(this._prevRoundKills){
+      if(this.tanks[0].roundKills>this._prevRoundKills[0]){
+        this.killFeed.unshift({text:`P1 ELIMINATED P2`,col:this.tanks[0].col,timer:3000});
+        if(this.killFeed.length>3)this.killFeed.pop();
+      }
+      if(this.tanks[1].roundKills>this._prevRoundKills[1]){
+        this.killFeed.unshift({text:`P2 ELIMINATED P1`,col:this.tanks[1].col,timer:3000});
+        if(this.killFeed.length>3)this.killFeed.pop();
+      }
+    }
+    this._prevRoundKills=[this.tanks[0].roundKills,this.tanks[1].roundKills];
+    this.killFeed=this.killFeed.filter(k=>{k.timer-=this.dt;return k.timer>0;});
+
+    // Power-ups
+    this.puTimer-=this.dt;
+    if(this.puTimer<=0){this.spawnPU();this.puTimer=PU_INTERVAL;}
+    this.powerups=this.powerups.filter(p=>p.active);
+    this.powerups.forEach(p=>{
+      p.update();
+      this.tanks.forEach(t=>{
+        if(t.alive&&p.checkCollect(t)){p.active=false;t.applyPU(p.type,this.audio);this.onlineEvents.push({type:'powerup'});}
+      });
+    });
+
+    // Particles
+    this.ps.update();
+
+    // Land mine updates + collision
+    this.landMines=this.landMines.filter(m=>m.active);
+    this.landMines.forEach(m=>{
+      m.update(this.dt);
+      const victim=m.checkTrigger(this.tanks);
+      if(victim){
+        m.active=false;
+        // Explosion
+        this.ps.emit(m.x,m.y,'#ffffff',24,16,5,7);
+        this.ps.emit(m.x,m.y,'#ffff99',20,13,6,12);
+        this.ps.emit(m.x,m.y,'#cc4400',28,10,8,30);
+        this.ps.emit(m.x,m.y,'#ff5500',24,8,9,40);
+        this.audio.explosion?.();
+        this.addShake(3);
+        if(victim.alive&&!victim.shield){
+          const killer=this.tanks.find(t=>t.playerNum===m.ownerPlayerNum);
+          if(killer&&killer!==victim){killer.kills++;killer.roundKills++;}
+          victim.die(this.ps,this.audio);
+          this.onlineEvents.push({type:'death',x:m.x,y:m.y,col:victim.col});
+          // Kill feed with mine attribution
+          const vName=`P${victim.playerNum}`;
+          const kName=`P${m.ownerPlayerNum}`;
+          const msg=m.ownerPlayerNum===victim.playerNum
+            ?`${vName} STEPPED ON OWN MINE`
+            :`${kName} MINED ${vName}`;
+          this.killFeed.unshift({text:msg,col:PU_DEF.MINE.col,timer:4000,mine:true});
+          if(this.killFeed.length>3)this.killFeed.pop();
+        }else if(victim.shield){
+          victim.shield=false;
+          this.ps.emit(m.x,m.y,PU_DEF.SHIELD.col,14,8,4,18);
+        }
+      }
+    });
+
+    // Round win condition — first to ROUND_KILLS_TO_WIN takes the round
+    const winner=this.tanks.find(t=>t.roundKills>=ROUND_KILLS_TO_WIN);
+    if(winner&&!this.matchOver){
+      this.matchOver=true;this.winner=winner;this.winTimer=0;
+      this.audio.victoryFanfare();
+      this.addShake(2);
+      for(let i=0;i<8;i++){
+        setTimeout(()=>{
+          const a=Math.random()*W,b=HUD+Math.random()*AH;
+          this.ps.emit(a,b,winner.col,20,8,5,50);
+          this.ps.emit(a,b,'#ffdd00',10,10,3,40);
+        },i*200);
+      }
+      this.onlineEvents.push({type:'roundWin',col:winner.col});
+    }
+    if(this.isOnlineHost())this.broadcastOnlineSnapshot();
+  }
+
+  updatePause(){
+    const opts=this.getPauseOptions();
+    const tap=this.input.consumeTap();
+    if(tap&&this.handlePauseTap(tap,opts))return;
+    if(this.input.wasPressed('ArrowDown')||this.input.wasPressed('KeyS')){
+      this.pauseSel=(this.pauseSel+1)%opts.length;
+      this.audio.menuMove();
+    }
+    if(this.input.wasPressed('ArrowUp')||this.input.wasPressed('KeyW')){
+      this.pauseSel=(this.pauseSel-1+opts.length)%opts.length;
+      this.audio.menuMove();
+    }
+    if(this.input.wasPressed('Escape')){
+      this.audio.menuMove();
+      this.closePauseMenu();
+      return;
+    }
+    if(this.input.wasPressed('Enter')||this.input.wasPressed('Space')||this.input.wasPressed('NumpadEnter')){
+      this.commitPauseAction(opts[this.pauseSel]);
+    }
+  }
+
+  spawnPU(){
+    if(this.powerups.filter(p=>p.active).length>=MAX_ACTIVE_POWERUPS)return;
+    const pos=this.arena.randomFloor();
+    const night=this.roundNum%NIGHT_ROUND_MOD===NIGHT_ROUND_MOD-1;
+    const pool=night?PU_KEYS:PU_KEYS.filter(k=>k!=='RADAR');
+    const type=pool[Math.floor(Math.random()*pool.length)];
+    this.powerups.push(new PowerUp(pos.x,pos.y,type));
+  }
+
+  /* ══════════════════════════════════════════════
+     END SCREEN UPDATE
+  ══════════════════════════════════════════════ */
+  updateEnd(){
+    if(this.isOnlineGuest()){
+      const opts=this.getEndOptions();
+      const tap=this.input.consumeTap();
+      if(tap&&this.handleEndTap(tap,opts))return;
+      if(this.input.wasPressed('Escape')){
+        this.goMenu('Left online room.');
+        return;
+      }
+      if(this.input.wasPressed('Enter')||this.input.wasPressed('Space')||this.input.wasPressed('NumpadEnter')){
+        this.commitEndAction(opts[0]);
+      }
+      return;
+    }
+    this.endTimer+=this.dt;
+    this.ps.update();
+    const opts=this.getEndOptions();
+    const tap=this.input.consumeTap();
+    if(tap&&this.handleEndTap(tap,opts))return;
+    if(this.input.wasPressed('ArrowDown')||this.input.wasPressed('KeyS')){
+      this.endSel=(this.endSel+1)%opts.length;this.audio.menuMove();
+    }
+    if(this.input.wasPressed('ArrowUp')||this.input.wasPressed('KeyW')){
+      this.endSel=(this.endSel-1+opts.length)%opts.length;this.audio.menuMove();
+    }
+    if(this.input.wasPressed('Enter')||this.input.wasPressed('Space')||this.input.wasPressed('NumpadEnter')){
+      this.audio.menuSelect();
+      this.commitEndAction(opts[this.endSel]);
+    }
+    if(this.isOnlineHost())this.broadcastOnlineSnapshot();
+  }
+
+  startMatch(){
+    this.state=STATE.PLAYING;
+    this.audio.setThemeMode('game');
+    this.bullets=[];this.powerups=[];this.landMines=[];this.ps=new ParticleSystem();this.tracks=[];
+    this.onlineEvents=[];
+    this.puTimer=PU_INTERVAL;this.matchOver=false;this.winner=null;
+    this.killFeed=[];this.roundNum=0;this.mapIdx=0;
+    const mapData=MAPS[0];
+    this.arena.load(mapData);
+    this.arena.loadTunnels(MAP_TUNNELS[0]);
+    this.tanks.forEach((t,i)=>{
+      t.kills=0;t.roundKills=0;t.alive=false;t.respawnTimer=0;
+      t.shield=false;t.ghost=false;t.rapid=false;t.triple=false;t.bounceBonus=false;t.wallBreak=false;t.wallBreakTimer=0;
+      t.respawn(this.arena);
+      t.angle=i===0?0:Math.PI;
+    });
+    this.countdownVal=3;this.countdownTimer=0;this.gameReady=false;
+    this._prevRoundKills=[0,0];
+    if(this.isOnlineMode()){
+      this.online.snapshotTimer=0;
+      this.online.inputTimer=0;
+      this.online.lastInputSig='';
+      this.online.remoteFireHeld=false;
+    }
+  }
+
+  goEnd(){
+    this.state=STATE.END;
+    this.audio.setThemeMode('title');
+    this.endTimer=0;this.endSel=0;
+    // Fire celebratory particles
+    const w=this.winner;
+    if(w){
+      for(let i=0;i<12;i++){
+        setTimeout(()=>{
+          const x=Math.random()*W,y=HUD+Math.random()*AH;
+          this.ps.emit(x,y,w.col,18,9,5,55);
+          this.ps.emit(x,y,'#ffdd00',8,11,3,45);
+        },i*150);
+      }
+    }
+    if(this.isOnlineHost())this.broadcastOnlineSnapshot(true);
+  }
+  getEndOptions(){
+    if(!this.isOnlineMode())return['REMATCH','CHANGE TANKS','MAIN MENU'];
+    return this.isOnlineHost()?['REMATCH','CHANGE TANKS','MAIN MENU']:['LEAVE ROOM'];
+  }
+  commitEndAction(action){
+    if(action==='REMATCH'){
+      this.mapIdx=0;
+      this.tanks[0].kills=0;this.tanks[1].kills=0;
+      this.startMatch();
+      return;
+    }
+    if(action==='CHANGE TANKS'){
+      if(this.isOnlineHost())this.onlineSession?.send('GAME_EVENT',{event:{kind:'END_ACTION',action:'select'}});
+      this.goSelect();
+      return;
+    }
+    if(action==='MAIN MENU'||action==='LEAVE ROOM'){
+      if(this.isOnlineHost())this.onlineSession?.send('GAME_EVENT',{event:{kind:'END_ACTION',action:'menu'}});
+      this.goMenu('Room closed.');
+    }
+  }
+  sendOnlineInput(){
+    if(!this.onlineSession||!this.isOnlineGuest())return;
+    this.online.inputTimer-=this.dt;
+    const input=this.getOnlineInputState(this.online.playerNum);
+    const sig=JSON.stringify(input);
+    if(sig===this.online.lastInputSig&&this.online.inputTimer>0)return;
+    this.online.lastInputSig=sig;
+    this.online.inputTimer=INPUT_SEND_MS;
+    this.onlineSession.send('INPUT',{input,t:this.now});
+  }
+  broadcastOnlineSnapshot(force=false){
+    if(!this.onlineSession||!this.isOnlineHost())return;
+    this.online.snapshotTimer-=this.dt;
+    if(!force&&this.online.snapshotTimer>0)return;
+    this.online.snapshotTimer=SNAPSHOT_MS;
+    this.onlineSession.send('GAME_EVENT',{event:{kind:'SNAPSHOT',snapshot:this.serializeOnlineSnapshot()}});
+  }
+  serializeTankState(tank){
+    return{
+      type:tank.type,x:+tank.x.toFixed(2),y:+tank.y.toFixed(2),angle:+tank.angle.toFixed(4),
+      playerNum:tank.playerNum,isCPU:tank.isCPU,alive:tank.alive,kills:tank.kills,roundKills:tank.roundKills,
+      respawnTimer:tank.respawnTimer,lastFireTime:tank.lastFireTime,shield:tank.shield,ghost:tank.ghost,
+      ghostTimer:tank.ghostTimer,rapid:tank.rapid,rapidTimer:tank.rapidTimer,triple:tank.triple,
+      tripleTimer:tank.tripleTimer,bounceBonus:tank.bounceBonus,bounceTimer:tank.bounceTimer,
+      wallBreak:tank.wallBreak,wallBreakTimer:tank.wallBreakTimer,
+      muzzleFlash:tank.muzzleFlash,moveAnim:tank.moveAnim,
+    };
+  }
+  restoreTankState(state){
+    const tank=new Tank(state.type,state.x,state.y,state.angle,this.getPlayerControls(state.playerNum),state.playerNum,!!state.isCPU);
+    Object.assign(tank,state);
+    return tank;
+  }
+  serializeBulletState(bullet){
+    return{
+      x:+bullet.x.toFixed(2),y:+bullet.y.toFixed(2),vx:+bullet.vx.toFixed(2),vy:+bullet.vy.toFixed(2),
+      maxBounces:bullet.maxBounces,bounces:bullet.bounces,active:bullet.active,col:bullet.col,age:bullet.age,
+      wallBreak:bullet.wallBreak,
+      ownerPlayer:bullet.owner.playerNum,trail:bullet.trail.map(pt=>({x:+pt.x.toFixed(2),y:+pt.y.toFixed(2)})),
+    };
+  }
+  restoreBulletState(state,owner){
+    const bullet=new Bullet(state.x,state.y,0,owner,state.maxBounces,state.col,!!state.wallBreak);
+    bullet.vx=state.vx;bullet.vy=state.vy;bullet.bounces=state.bounces;bullet.active=state.active;
+    bullet.age=state.age;bullet.trail=(state.trail||[]).map(pt=>({x:pt.x,y:pt.y}));
+    return bullet;
+  }
+  serializePowerUpState(powerup){
+    return{x:powerup.x,y:powerup.y,type:powerup.type,active:powerup.active,t:powerup.t};
+  }
+  restorePowerUpState(state){
+    const powerup=new PowerUp(state.x,state.y,state.type);
+    powerup.active=state.active;
+    powerup.t=state.t;
+    return powerup;
+  }
+  serializeOnlineSnapshot(){
+    const events=this.onlineEvents.splice(0);
+    return{
+      state:this.state===STATE.END?'END':'PLAYING',
+      roundNum:this.roundNum,mapIdx:this.mapIdx,map:this.arena.grid,tunnels:this.arena.tunnels,
+      gameReady:this.gameReady,countdownVal:this.countdownVal,countdownTimer:this.countdownTimer,
+      matchOver:this.matchOver,winTimer:this.winTimer,endTimer:this.endTimer,puTimer:this.puTimer,
+      killFeed:this.killFeed.map(item=>({...item})),p1Sel:this.p1Sel,p2Sel:this.p2Sel,p1Ready:this.p1Ready,p2Ready:this.p2Ready,
+      tanks:this.tanks.map(t=>this.serializeTankState(t)),
+      bullets:this.bullets.filter(b=>b.active&&!b.isShrapnel).map(b=>this.serializeBulletState(b)),
+      powerups:this.powerups.filter(p=>p.active).map(p=>this.serializePowerUpState(p)),
+      landMines:this.landMines.filter(m=>m.active).map(m=>({x:m.x,y:m.y,owner:m.ownerPlayerNum,armed:m.armed})),
+      winnerPlayerNum:this.winner?this.winner.playerNum:null,
+      events,
+    };
+  }
+  applyOnlineSnapshot(snapshot){
+    if(!snapshot)return;
+    this.gameMode='online';
+    this.singlePlayer=false;
+    this.input.setTouchPlayerNum(this.online.playerNum);
+    this.state=snapshot.state==='END'?STATE.END:STATE.PLAYING;
+    if(snapshot.map)this.arena.load(snapshot.map);
+    this.arena.tunnels=snapshot.tunnels||[];
+    this.roundNum=snapshot.roundNum||0;
+    this.mapIdx=snapshot.mapIdx||0;
+    this.gameReady=!!snapshot.gameReady;
+    this.countdownVal=snapshot.countdownVal||0;
+    this.countdownTimer=snapshot.countdownTimer||0;
+    this.matchOver=!!snapshot.matchOver;
+    this.winTimer=snapshot.winTimer||0;
+    this.endTimer=snapshot.endTimer||0;
+    this.puTimer=snapshot.puTimer||PU_INTERVAL;
+    this.killFeed=(snapshot.killFeed||[]).map(item=>({...item}));
+    this.p1Sel=snapshot.p1Sel??0;
+    this.p2Sel=snapshot.p2Sel??1;
+    this.p1Ready=!!snapshot.p1Ready;
+    this.p2Ready=!!snapshot.p2Ready;
+    this.tanks=(snapshot.tanks||[]).map(state=>this.restoreTankState(state));
+    const tankMap=new Map(this.tanks.map(t=>[t.playerNum,t]));
+    this.bullets=(snapshot.bullets||[]).map(state=>this.restoreBulletState(state,tankMap.get(state.ownerPlayer)||this.tanks[0]));
+    this.powerups=(snapshot.powerups||[]).map(state=>this.restorePowerUpState(state));
+    this.landMines=(snapshot.landMines||[]).map(s=>{const m=new LandMine(s.x,s.y,s.owner);if(s.armed)m.armTimer=0;return m;});
+    this.winner=snapshot.winnerPlayerNum?tankMap.get(snapshot.winnerPlayerNum)||null:null;
+    this._prevRoundKills=this.tanks.map(t=>t.roundKills);
+    // Replay visual events from host
+    for(const ev of (snapshot.events||[])){
+      if(ev.type==='death'){
+        this.ps.emit(ev.x,ev.y,'#ffffff',24,16,5,7);
+        this.ps.emit(ev.x,ev.y,'#ffff99',20,13,6,12);
+        this.ps.emit(ev.x,ev.y,'#ff9900',28,10,8,30);
+        this.ps.emit(ev.x,ev.y,'#ff5500',24,8,9,40);
+        this.ps.emit(ev.x,ev.y,'#cc1100',18,12,6,22);
+        for(let i=0;i<6;i++)this.ps.emit(ev.x,ev.y,ev.col,5,7+i*1.5,4+i,45+i*10);
+        this.ps.emit(ev.x,ev.y,'#1a1a1a',14,3,14,80);
+        this.ps.emit(ev.x,ev.y,'#333333',12,2,18,100);
+        this.ps.emit(ev.x,ev.y,'#ffcc00',16,14,2,18);
+        this.audio.explode((ev.x/W)*2-1);
+        this.addShake(2.5);
+      }else if(ev.type==='shieldHit'){
+        this.ps.emit(ev.x,ev.y,'#ffffff',12,4,3,18);
+        this.audio.hit();
+      }else if(ev.type==='teleport'){
+        this.ps.emit(ev.x1,ev.y1,ev.col,14,5,3,28);
+        this.ps.emit(ev.x2,ev.y2,ev.col,14,5,3,28);
+      }else if(ev.type==='roundWin'){
+        for(let i=0;i<8;i++){
+          setTimeout(()=>{
+            const a=Math.random()*W,b=HUD+Math.random()*AH;
+            this.ps.emit(a,b,ev.col,20,8,5,50);
+            this.ps.emit(a,b,'#ffdd00',10,10,3,40);
+          },i*200);
+        }
+        this.audio.victoryFanfare();
+        this.addShake(2);
+      }else if(ev.type==='powerup'){
+        this.audio.powerup();
+      }
+    }
+  }
+
+  /* ══════════════════════════════════════════════
+     DRAW dispatcher
+  ══════════════════════════════════════════════ */
+  draw(){
+    const ctx=this.ctx;
+    ctx.save();
+    if(this.shakeX||this.shakeY)ctx.translate(this.shakeX,this.shakeY);
+    ctx.fillStyle=PAL.bg;ctx.fillRect(-10,-10,W+20,H+20);
+    switch(this.state){
+      case STATE.BOOT:    this.drawBoot(ctx);   break;
+      case STATE.SPLASH:  this.drawSplash(ctx); break;
+      case STATE.MENU:    this.drawMenu(ctx);   break;
+      case STATE.SELECT:  this.drawSelect(ctx); break;
+      case STATE.PLAYING: this.drawPlay(ctx);   break;
+      case STATE.END:     this.drawEnd(ctx);    break;
+      case STATE.LOBBY:   this.drawLobby(ctx);  break;
+      case STATE.PAUSE:   this.drawPause(ctx);  break;
+    }
+    ctx.restore();
+  }
+
+  /* ─── TEXT HELPERS ────────────────────────────── */
+  txt(ctx,str,x,y,sz,col,align='center',shadow=null){
+    ctx.font=`${sz}px "Press Start 2P"`;
+    ctx.textAlign=align;ctx.textBaseline='middle';
+    if(shadow){ctx.shadowColor=shadow;ctx.shadowBlur=10;}
+    ctx.fillStyle=col;ctx.fillText(str,x,y);
+    ctx.shadowBlur=0;
+  }
+  glow(ctx,col,blur=12){ctx.shadowColor=col;ctx.shadowBlur=blur;}
+
+  /* ══════════════════════════════════════════════
+     DRAW BOOT
+  ══════════════════════════════════════════════ */
+  drawBoot(ctx){
+    const noise=ctx.createImageData(W,H);
+    for(let i=0;i<noise.data.length;i+=4){
+      const v=6+Math.random()*26;
+      noise.data[i]=noise.data[i+1]=noise.data[i+2]=v;noise.data[i+3]=255;
+    }
+    ctx.putImageData(noise,0,0);
+    ctx.fillStyle='rgba(0,0,0,.45)';
+    ctx.fillRect(0,0,W,H);
+    ctx.font='24px "Press Start 2P"';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    const grad=ctx.createLinearGradient(W/2-180,0,W/2+180,0);
+    grad.addColorStop(0,'#cc7700');grad.addColorStop(.5,'#ffee88');grad.addColorStop(1,'#cc7700');
+    ctx.fillStyle=grad;ctx.shadowColor='#ffaa00';ctx.shadowBlur=18;
+    ctx.fillText('TANK TACTICS',W/2,120);
+    ctx.shadowBlur=0;
+    ctx.font='11px "Press Start 2P"';
+    ctx.fillStyle='#7a7aa0';
+    ctx.fillText('RETRO RELOAD',W/2,158);
+
+    ctx.font='13px "Press Start 2P"';
+    ctx.textAlign='left';ctx.textBaseline='top';
+    const startY=240;
+    this.bootLines.forEach((line,i)=>{
+      const isLaunch=line==='CLICK TO LAUNCH...';
+      const blink=!isLaunch||this.bootTimer%1000<550;
+      if(!blink)return;
+      ctx.fillStyle=isLaunch?PAL.green:'rgba(0,255,136,0.92)';
+      ctx.shadowColor=isLaunch?PAL.green:'#00ff88';
+      ctx.shadowBlur=isLaunch?12:8;
+      ctx.fillText('> '+line,120,startY+i*34);
+    });
+
+    if(this.bootLineIdx<this.bootSequence.length){
+      const current=this.bootSequence[this.bootLineIdx].slice(0,this.bootCharIdx);
+      const cursor=Math.floor(this.now/400)%2===0?'_':'';
+      ctx.fillStyle=this.bootLineIdx===this.bootSequence.length-1?PAL.green:'rgba(0,255,136,0.96)';
+      ctx.shadowColor=this.bootLineIdx===this.bootSequence.length-1?PAL.green:'#00ff88';
+      ctx.shadowBlur=10;
+      ctx.fillText('> '+current+cursor,120,startY+this.bootLineIdx*34);
+    }
+    ctx.shadowBlur=0;
+
+    ctx.font='8px "Press Start 2P"';
+    ctx.textAlign='center';
+    ctx.fillStyle=PAL.dim;
+    ctx.fillText('THEME SONG STARTS WHEN YOU CLICK LAUNCH',W/2,H-68);
+    ctx.fillText('P1: WASD + SPACE     P2: ARROWS + ENTER',W/2,H-42);
+  }
+
+  /* ══════════════════════════════════════════════
+     DRAW SPLASH
+  ══════════════════════════════════════════════ */
+  drawSplash(ctx){
+    const t=this.splashTimer;
+    // Animated background grid
+    ctx.fillStyle=PAL.floor;ctx.fillRect(0,0,W,H);
+    const scroll=(t*.02)%TS;
+    ctx.strokeStyle='rgba(20,20,50,.8)';ctx.lineWidth=1;
+    for(let x=-TS+scroll;x<W+TS;x+=TS){
+      ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();
+    }
+    for(let y=0;y<H;y+=TS){
+      ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();
+    }
+
+    // Two tanks facing each other
+    ctx.save();
+    ctx.translate(160,H/2+20);ctx.rotate(-Math.PI/2);
+    this.drawMiniTank(ctx,'#d42020','#6e0e0e',t);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(W-160,H/2+20);ctx.rotate(Math.PI/2);
+    this.drawMiniTank(ctx,'#18a818','#085808',t);
+    ctx.restore();
+
+    // Title with glitch
+    const glitch=Math.random()<.03?Math.random()*4-2:0;
+    // Shadow text
+    ctx.font='38px "Press Start 2P"';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillStyle='rgba(0,0,0,.7)';
+    ctx.fillText('TANK TACTICS',W/2+3,H/2-78+3);
+    // Main title
+    const tGrad=ctx.createLinearGradient(W/2-200,0,W/2+200,0);
+    tGrad.addColorStop(0,'#cc8800');tGrad.addColorStop(.5,'#ffee88');tGrad.addColorStop(1,'#cc8800');
+    ctx.shadowColor='#ffaa00';ctx.shadowBlur=20;
+    ctx.fillStyle=tGrad;
+    ctx.fillText('TANK TACTICS',W/2+glitch,H/2-78);
+    ctx.shadowBlur=0;
+    // Subtitle
+    ctx.font='24px "Press Start 2P"';
+    ctx.fillStyle='#8888aa';
+    ctx.fillText('RETRO  RELOAD',W/2,H/2-42);
+    // Version tag
+    ctx.font='9px "Press Start 2P"';
+    ctx.fillStyle=PAL.dim;
+    ctx.fillText('v1.0',W/2+120,H/2-42);
+
+    // Flashing prompt
+    if(this.splashBlink){
+      this.glow(ctx,PAL.green,12);
+      this.txt(ctx,'PRESS ANY KEY',W/2,H/2+60,13,PAL.green);
+      ctx.shadowBlur=0;
+    }
+
+    // Controls hint
+    ctx.font='9px "Press Start 2P"';
+    ctx.fillStyle=PAL.dim;
+    ctx.textAlign='center';
+    ctx.fillText('P1: WASD + SPACE',W/2,H/2+108);
+    ctx.fillText('P2: ARROWS + ENTER',W/2,H/2+126);
+    if(this.input.shouldShowTouchControls())ctx.fillText('TOUCH: STICK + FIRE',W/2,H/2+144);
+    ctx.fillText('ROUND: FIRST TO '+ROUND_KILLS_TO_WIN+' KILLS',W/2,H/2+168);
+    ctx.fillText('MATCH: FIRST TO '+KILLS_WIN+' ROUNDS',W/2,H/2+186);
+
+    // Bottom credits
+    ctx.font='8px "Press Start 2P"';ctx.fillStyle='#2a2a44';
+    ctx.fillText('© TANK TACTICS RETRO RELOAD',W/2,H-20);
+  }
+
+  drawMiniTank(ctx,col,dark,t){
+    const bob=Math.sin(t*.002)*3;
+    const turretRot=Math.sin(t*.0015)*.3;
+    ctx.translate(0,bob);
+    ctx.fillStyle='#111';ctx.fillRect(-17,-14,7,28);ctx.fillRect(10,-14,7,28);
+    ctx.fillStyle=dark; ctx.fillRect(-10,-13,20,26);
+    ctx.fillStyle=col;  ctx.fillRect(-9,-12,18,24);
+    ctx.fillStyle=dark; ctx.fillRect(-9,-2,18,4);
+    ctx.save();ctx.rotate(turretRot);
+    ctx.fillStyle=dark; ctx.fillRect(-6,-6,12,12);
+    ctx.fillStyle=col;  ctx.fillRect(-5,-5,10,10);
+    ctx.fillStyle=dark; ctx.fillRect(-3.5,-20,7,20);
+    ctx.fillStyle='#444';ctx.fillRect(-2.5,-20,5,19);
+    ctx.restore();
+  }
+
+  /* ══════════════════════════════════════════════
+     DRAW MENU
+  ══════════════════════════════════════════════ */
+  drawMenu(ctx){
+    if(this.attractMode){this.drawAttract(ctx);return;}
+    const t=this.now;
+    // Animated BG
+    ctx.fillStyle=PAL.floor;ctx.fillRect(0,0,W,H);
+    const s=(t*.015)%TS;
+    ctx.strokeStyle='rgba(18,18,38,.9)';ctx.lineWidth=.8;
+    for(let x=-s;x<W;x+=TS){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x+200,H);ctx.stroke();}
+
+    // Title
+    ctx.font='24px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+    const tg=ctx.createLinearGradient(W/2-150,0,W/2+150,0);
+    tg.addColorStop(0,'#cc7700');tg.addColorStop(.5,'#ffee88');tg.addColorStop(1,'#cc7700');
+    ctx.shadowColor='#ffaa00';ctx.shadowBlur=14;
+    ctx.fillStyle=tg;ctx.fillText('TANK TACTICS',W/2,90);
+    ctx.font='18px "Press Start 2P"';ctx.fillStyle='#666688';ctx.shadowBlur=0;
+    ctx.fillText('RETRO RELOAD',W/2,118);
+
+    // Menu items
+    const {items,selectedKey,label}=this.getActiveMenuContext();
+    const selected=this[selectedKey];
+    const {startY,gap,statusY,noticeY,hintText,touchHint}=this.getMenuLayout();
+    if(this.menuMode==='share'){
+      const card={x:92,y:156,w:416,h:520};
+      ctx.fillStyle='rgba(6,12,24,.88)';
+      ctx.fillRect(card.x,card.y,card.w,card.h);
+      ctx.strokeStyle='rgba(0,255,136,.22)';
+      ctx.lineWidth=2;
+      ctx.strokeRect(card.x,card.y,card.w,card.h);
+      ctx.fillStyle='rgba(0,255,136,.05)';
+      ctx.fillRect(card.x+20,card.y+20,card.w-40,card.h-40);
+      this.glow(ctx,PAL.green,10);
+      this.txt(ctx,'SCAN TO SHARE',W/2,card.y+34,10,PAL.green);
+      ctx.shadowBlur=0;
+
+      const qrBox={x:W/2-142,y:card.y+74,w:284,h:284};
+      ctx.fillStyle='#f4f6ff';
+      ctx.fillRect(qrBox.x,qrBox.y,qrBox.w,qrBox.h);
+      ctx.strokeStyle='rgba(255,255,255,.2)';
+      ctx.strokeRect(qrBox.x,qrBox.y,qrBox.w,qrBox.h);
+      if(this.shareQrImage&&this.shareQrStatus==='ready'){
+        ctx.drawImage(this.shareQrImage,qrBox.x+12,qrBox.y+12,qrBox.w-24,qrBox.h-24);
+      }else{
+        ctx.fillStyle='#11182a';
+        ctx.fillRect(qrBox.x+12,qrBox.y+12,qrBox.w-24,qrBox.h-24);
+        ctx.font='9px "Press Start 2P"';
+        ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillStyle=this.shareQrStatus==='error'?PAL.red:PAL.dim;
+        ctx.fillText(this.shareQrStatus==='error'?'QR LOAD FAILED':'LOADING QR...',W/2,qrBox.y+qrBox.h/2);
+      }
+
+      const shareUrl=this.getShareUrl();
+      let shareHost=shareUrl;
+      try{shareHost=new URL(shareUrl).host;}catch(e){}
+      ctx.font='8px "Press Start 2P"';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle=PAL.dim;
+      ctx.fillText('OPEN THE CAMERA APP AND SCAN',W/2,card.y+394);
+      ctx.fillStyle=PAL.white;
+      ctx.fillText(shareHost.toUpperCase(),W/2,card.y+432);
+      ctx.fillStyle=PAL.dim;
+      ctx.fillText('OR USE COPY LINK BELOW',W/2,card.y+466);
+    }
+    // ── Power-ups reference screen ──────────────────────────────
+    if(this.menuMode==='powerups'){
+      const PU_DESCS={
+        RAPID:   'Hold fire to shoot\ncontinuously at rapid pace',
+        TRIPLE:  'Each shot fires 3 bullets\nin a spread pattern',
+        SHIELD:  'Absorbs one hit\ncompletely — then gone',
+        BOUNCE:  'Bullets ricochet off walls\nup to 6 extra times',
+        BREACH:  'Bullets blast through\nand destroy wall segments',
+        GHOST:   'Tank phases through walls\nand obstacles',
+        SHRAPNEL:'Bullets explode on wall impact\nsending ghost shards through barriers',
+        HSPEED:  '2x speed boost — gauge\nonly drains while moving',
+        RADAR:   'Night Mode only: 3 expanding\npulse rings reveal map & enemies',
+        MINE:    'Hold fire 3s to place a mine\nbehind tank. 3 mines. Kills anyone.',
+      };
+      const keys=Object.keys(PU_DEF);
+      // Subtitle sits below the existing "RETRO RELOAD" header — no overlap
+      ctx.font='8px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle='#444466';
+      ctx.fillText('— POWER-UP GUIDE —',W/2,136);
+      // Thin separator line
+      ctx.strokeStyle='#222244';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(24,146);ctx.lineTo(W-24,146);ctx.stroke();
+      const cardH=86, cardW=W-48, cardX=24;
+      const startCard=152;
+      ctx.shadowBlur=0;
+      keys.forEach((key,i)=>{
+        const def=PU_DEF[key];
+        const cy=startCard+i*cardH;
+        const ch=cardH-5;
+        // Night-mode-only badge tint for RADAR
+        const isNightOnly=key==='RADAR';
+        // Card bg
+        ctx.fillStyle=isNightOnly?'rgba(10,10,30,0.9)':'rgba(8,8,22,0.85)';
+        ctx.fillRect(cardX,cy,cardW,ch);
+        ctx.strokeStyle=def.col+(isNightOnly?'88':'55');ctx.lineWidth=isNightOnly?2:1.5;
+        ctx.strokeRect(cardX,cy,cardW,ch);
+        // Icon circle
+        const ix=cardX+38,iy=cy+ch/2;
+        ctx.shadowColor=def.col;ctx.shadowBlur=12;
+        ctx.fillStyle=def.col+'33';
+        ctx.beginPath();ctx.arc(ix,iy,22,0,Math.PI*2);ctx.fill();
+        ctx.strokeStyle=def.col;ctx.lineWidth=2;
+        ctx.beginPath();ctx.arc(ix,iy,22,0,Math.PI*2);ctx.stroke();
+        ctx.fillStyle=def.col;
+        ctx.font='bold 10px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillText(def.icon,ix,iy);
+        ctx.shadowBlur=0;
+        // Name
+        ctx.fillStyle=def.col;
+        ctx.font='10px "Press Start 2P"';ctx.textAlign='left';ctx.textBaseline='top';
+        ctx.fillText(def.label,cardX+72,cy+12);
+        // Description lines
+        const lines=PU_DESCS[key].split('\n');
+        ctx.fillStyle='#8888aa';ctx.font='8px "Press Start 2P"';
+        lines.forEach((ln,li)=>ctx.fillText(ln,cardX+72,cy+32+li*17));
+        // Duration / night badge
+        const durTxt=key==='HSPEED'?'FUEL-BASED':key==='RADAR'?'☾ NIGHT ONLY':key==='MINE'?'3 MINES':def.dur===0?'PERMANENT':Math.round(def.dur/1000)+'s';
+        ctx.fillStyle=isNightOnly?'#334488':'#333355';ctx.font='7px "Press Start 2P"';
+        ctx.textAlign='right';ctx.textBaseline='bottom';
+        ctx.fillText(durTxt,cardX+cardW-8,cy+ch-5);
+      });
+      // Back hint
+      ctx.font='7px "Press Start 2P"';ctx.textAlign='center';ctx.fillStyle=PAL.dim;ctx.textBaseline='middle';
+      ctx.fillText('TAP ANYWHERE  •  ESC TO RETURN',W/2,H-28);
+      return;
+    }
+
+    items.forEach((item,i)=>{
+      const y=startY+i*gap;
+      const sel=i===selected;
+      const dim=item.dim;
+
+      if(sel&&!dim){
+        // Selection box
+        ctx.fillStyle='rgba(0,255,136,.07)';
+        ctx.fillRect(W/2-160,y-18,320,36);
+        ctx.strokeStyle='rgba(0,255,136,.3)';ctx.lineWidth=1;
+        ctx.strokeRect(W/2-160,y-18,320,36);
+        // Arrow
+        ctx.font='11px "Press Start 2P"';ctx.fillStyle=PAL.green;
+        this.glow(ctx,PAL.green,10);
+        ctx.textAlign='left';
+        ctx.fillText('▶',W/2-148,y);
+        ctx.textAlign='center';
+      }
+
+      const col=dim?'#333355':sel?PAL.green:PAL.white;
+      if(sel&&!dim)this.glow(ctx,PAL.green,8);
+      ctx.font='13px "Press Start 2P"';ctx.textAlign='center';
+      ctx.fillStyle=col;ctx.fillText(this.resolveMenuLabel(item),W/2,y);
+      if(dim){
+        ctx.font='8px "Press Start 2P"';ctx.fillStyle='#333355';
+        ctx.fillText('COMING SOON',W/2,y+16);
+      }else if(item.note){
+        ctx.font='8px "Press Start 2P"';ctx.fillStyle=sel?PAL.dim:'#333355';
+        ctx.fillText(item.note,W/2,y+16);
+      }
+      ctx.shadowBlur=0;
+    });
+
+    // Settings status
+    ctx.font='9px "Press Start 2P"';ctx.textAlign='center';
+    ctx.fillStyle=PAL.dim;
+    ctx.fillText(label,W/2,statusY);
+    const notice=this.menuMode==='share'?this.shareNotice:this.menuNotice;
+    if(notice){
+      ctx.fillStyle=PAL.yellow;
+      ctx.fillText(notice,W/2,noticeY);
+    }
+
+    // Bottom hint
+    ctx.font='9px "Press Start 2P"';ctx.fillStyle=PAL.dim;
+    if(this.input.shouldShowTouchControls()){
+      ctx.fillText(touchHint,W/2,H-30);
+    }else{
+      ctx.fillText(hintText,W/2,H-30);
+    }
+  }
+
+  drawLobby(ctx){
+    ctx.fillStyle=PAL.bg;ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#0e0e1e';ctx.fillRect(0,0,W,72);
+    this.glow(ctx,PAL.yellow,10);
+    this.txt(ctx,'ONLINE ROOM',W/2,36,13,PAL.yellow);
+    ctx.shadowBlur=0;
+
+    const card={x:70,y:160,w:460,h:250};
+    ctx.fillStyle='rgba(255,255,255,.03)';
+    ctx.fillRect(card.x,card.y,card.w,card.h);
+    ctx.strokeStyle='rgba(0,255,136,.22)';
+    ctx.lineWidth=2;
+    ctx.strokeRect(card.x,card.y,card.w,card.h);
+
+    ctx.font='9px "Press Start 2P"';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillStyle=PAL.dim;
+    ctx.fillText('SHARE THIS INVITE CODE',W/2,206);
+
+    const codeRect=this.getLobbyCodeRect();
+    ctx.fillStyle='rgba(0,255,136,.08)';
+    ctx.fillRect(codeRect.x,codeRect.y,codeRect.w,codeRect.h);
+    ctx.strokeStyle='rgba(0,255,136,.32)';
+    ctx.strokeRect(codeRect.x,codeRect.y,codeRect.w,codeRect.h);
+    this.glow(ctx,PAL.green,16);
+    this.txt(ctx,this.online.roomCode||'....',W/2,codeRect.y+codeRect.h/2+2,18,PAL.green);
+    ctx.shadowBlur=0;
+
+    ctx.fillStyle=PAL.white;
+    ctx.font='8px "Press Start 2P"';
+    ctx.fillText(this.online.status||'WAITING FOR PLAYER 2...',W/2,346);
+    ctx.fillStyle=PAL.dim;
+    ctx.fillText('TAP THE CODE TO COPY IT AGAIN',W/2,374);
+
+    const cancel=this.getLobbyCancelRect();
+    ctx.fillStyle='rgba(255,64,64,.08)';
+    ctx.fillRect(cancel.x,cancel.y,cancel.w,cancel.h);
+    ctx.strokeStyle='rgba(255,64,64,.25)';
+    ctx.strokeRect(cancel.x,cancel.y,cancel.w,cancel.h);
+    ctx.fillStyle=PAL.red;
+    ctx.font='18px "Press Start 2P"';
+    ctx.fillText('CANCEL',cancel.x+cancel.w/2,cancel.y+cancel.h/2+1);
+
+    ctx.font='9px "Press Start 2P"';
+    ctx.fillStyle=PAL.dim;
+    ctx.fillText(this.input.shouldShowTouchControls()?'TAP CODE TO COPY   TAP CANCEL TO LEAVE':'ENTER COPY CODE   ESC CANCEL',W/2,H-32);
+  }
+
+  /* ══════════════════════════════════════════════
+     DRAW SELECT
+  ══════════════════════════════════════════════ */
+  drawSelect(ctx){
+    const t=this.now;
+    ctx.fillStyle=PAL.bg;ctx.fillRect(0,0,W,H);
+    // Header
+    ctx.fillStyle='#0e0e1e';ctx.fillRect(0,0,W,58);
+    this.glow(ctx,PAL.yellow,8);
+    this.txt(ctx,'SELECT YOUR TANK',W/2,29,11,PAL.yellow);
+    ctx.shadowBlur=0;
+    if(this.input.shouldShowTouchControls()){
+      const back=this.getSelectBackRect();
+      ctx.fillStyle='rgba(0,255,136,.06)';
+      ctx.fillRect(back.x,back.y,back.w,back.h);
+      ctx.strokeStyle='rgba(0,255,136,.24)';
+      ctx.lineWidth=1;
+      ctx.strokeRect(back.x,back.y,back.w,back.h);
+      ctx.font='8px "Press Start 2P"';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle=PAL.green;
+      ctx.fillText('BACK',back.x+back.w/2,back.y+back.h/2+1);
+    }
+
+    const tankW=250,tankH=240;
+    const gapX=18,gapY=18;
+    const startX=(W-(tankW*2+gapX))/2;
+    const startY=86;
+
+    TANK_ORDER.forEach((type,i)=>{
+      const def=TANK_DEF[type];
+      const col=i%2,row=Math.floor(i/2);
+      const x=startX+col*(tankW+gapX);
+      const y=startY+row*(tankH+gapY);
+      const p1=(i===this.p1Sel);const p2=(i===this.p2Sel);
+      const p1r=this.p1Ready&&p1;const p2r=this.p2Ready&&p2;
+
+      // Card BG
+      ctx.fillStyle=p1||p2?'rgba(255,255,255,.05)':'rgba(255,255,255,.02)';
+      ctx.fillRect(x,y,tankW,tankH);
+      ctx.strokeStyle=p1&&p2?'#ffdd00':p1?def.col:p2?def.col:'#1a1a3a';
+      ctx.lineWidth=p1||p2?2:1;
+      ctx.strokeRect(x,y,tankW,tankH);
+
+      // Tank drawing
+      ctx.save();ctx.translate(x+tankW/2,y+72);ctx.rotate(-Math.PI/2);
+      const sc=1+((p1||p2)?0.08:0);ctx.scale(sc,sc);
+      // Draw full tank
+      const bob=(p1||p2)?Math.sin(t*.003)*4:0;
+      ctx.translate(0,bob);
+      ctx.fillStyle='#111';ctx.fillRect(-17,-14,7,28);ctx.fillRect(10,-14,7,28);
+      ctx.fillStyle=def.dark;ctx.fillRect(-10,-13,20,26);
+      ctx.fillStyle=def.col; ctx.fillRect(-9,-12,18,24);
+      ctx.fillStyle=def.dark;ctx.fillRect(-9,-2,18,4);
+      ctx.fillStyle=def.dark;ctx.fillRect(-6,-6,12,12);
+      ctx.fillStyle=def.col; ctx.fillRect(-5,-5,10,10);
+      ctx.fillStyle=def.dark;ctx.fillRect(-3.5,-20,7,20);
+      ctx.fillStyle='#555'; ctx.fillRect(-2.5,-20,5,19);
+      ctx.restore();
+
+      // Name
+      ctx.font='8px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle=def.col;ctx.shadowColor=def.col;ctx.shadowBlur=8;
+      ctx.fillText(def.name,x+tankW/2,y+128);ctx.shadowBlur=0;
+
+      // Stats bars
+      const stats=[
+        {label:'SPD',val:def.speed/3},
+        {label:'ROF',val:1-(def.fireMs-600)/600},
+        {label:'RIC',val:def.bounces},
+      ];
+      stats.forEach((s,si)=>{
+        const bx=x+16,by=y+148+si*22;
+        ctx.font='8px "Press Start 2P"';ctx.fillStyle=PAL.dim;ctx.textAlign='left';
+        ctx.fillText(s.label,bx,by+4);
+        ctx.fillStyle='#0f0f1f';ctx.fillRect(bx+24,by,tankW-48,8);
+        ctx.fillStyle=def.col;ctx.fillRect(bx+24,by,Math.max(4,(tankW-48)*s.val),8);
+      });
+
+      // Trait
+      ctx.font='6px "Press Start 2P"';ctx.textAlign='center';
+      ctx.fillStyle='#555577';
+      const words=['POWER UPS DEFINE THE EDGE',def.trait.toUpperCase()];
+      words.forEach((w,wi)=>ctx.fillText(w.trim(),x+tankW/2,y+214+wi*12));
+
+      // Player indicators
+      if(p1){
+        ctx.font='9px "Press Start 2P"';ctx.textAlign='center';
+        ctx.fillStyle=p1r?PAL.green:TANK_DEF.RED.col;
+        ctx.shadowColor=p1r?PAL.green:TANK_DEF.RED.col;ctx.shadowBlur=8;
+        ctx.fillText(p1r?'P1 OK':'P1',x+tankW/2-28,y+tankH-16);
+        ctx.shadowBlur=0;
+      }
+      if(p2){
+        ctx.font='9px "Press Start 2P"';ctx.textAlign='center';
+        ctx.fillStyle=p2r?PAL.green:TANK_DEF.GREEN.col;
+        ctx.shadowColor=p2r?PAL.green:TANK_DEF.GREEN.col;ctx.shadowBlur=8;
+        const p2Label=this.singlePlayer?(p2?'CPU':''):p2r?'P2 OK':'P2';
+        ctx.fillText(p2Label,x+tankW/2+28,y+tankH-16);
+        ctx.shadowBlur=0;
+      }
+    });
+
+    // Control hints
+    ctx.font='9px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+    if(this.isOnlineMode()){
+      const localPlayer=this.getOnlineLocalPlayer();
+      const localReady=localPlayer===1?this.p1Ready:this.p2Ready;
+      const remoteReady=localPlayer===1?this.p2Ready:this.p1Ready;
+      ctx.fillStyle=localReady?PAL.green:'#556666';
+      this.glow(ctx,localReady?PAL.green:'transparent',6);
+      ctx.fillText(localPlayer===1?'P1: A/D SELECT   SPACE CONFIRM':'P2: ◀▶ SELECT   ENTER CONFIRM',W/2,H-56);
+      ctx.shadowBlur=0;
+      ctx.fillStyle=remoteReady?PAL.green:'#556666';
+      ctx.fillText(remoteReady?'REMOTE TANK LOCKED IN':'WAITING FOR OTHER PLAYER',W/2,H-34);
+    }else{
+      ctx.fillStyle=this.p1Ready?PAL.green:'#556666';
+      this.glow(ctx,this.p1Ready?PAL.green:'transparent',6);
+      ctx.fillText(this.singlePlayer?'P1: A/D SELECT   SPACE LOCK IN':'P1: A/D SELECT   SPACE CONFIRM',W/2,H-56);
+      ctx.shadowBlur=0;
+      ctx.fillStyle=this.p2Ready?PAL.green:'#556666';
+      this.glow(ctx,this.p2Ready?PAL.green:'transparent',6);
+      ctx.fillText(this.singlePlayer?'CPU AUTO-SELECTS THE RIVAL TANK':'P2: ◀▶ SELECT   ENTER CONFIRM',W/2,H-34);
+    }
+    if(this.input.shouldShowTouchControls()){
+      ctx.fillStyle='#556666';
+      ctx.fillText('TAP CARD TO CHOOSE   TAP AGAIN TO LOCK IN',W/2,H-14);
+    }
+    ctx.shadowBlur=0;
+  }
+
+  /* ══════════════════════════════════════════════
+     DRAW PLAY
+  ══════════════════════════════════════════════ */
+  drawPlay(ctx){
+    const t=this.now;
+    const arenaMidY=HUD+AH/2;
+
+    // HUD background
+    ctx.fillStyle=PAL.hud;ctx.fillRect(0,0,W,HUD);
+    ctx.strokeStyle='#1a1a35';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(0,HUD);ctx.lineTo(W,HUD);ctx.stroke();
+
+    // Arena
+    this.arena.draw(ctx,t);
+
+    // Power-ups
+    this.powerups.forEach(p=>p.draw(ctx));
+
+    // Land mines — visible only to their owner; in local 2P or demo show all (shared screen)
+    const sharedScreen=(!this.isOnlineMode()&&!this.singlePlayer)||this.demoMode;
+    const localMinePN=this.isOnlineHost()?1:this.isOnlineGuest()?2:1;
+    this.landMines.forEach(m=>{
+      m.draw(ctx,sharedScreen||m.ownerPlayerNum===localMinePN);
+    });
+
+    // Tank tracks
+    for(const tr of this.tracks){
+      ctx.save();
+      ctx.globalAlpha=tr.life*0.45;
+      ctx.translate(tr.x,tr.y);ctx.rotate(tr.angle);
+      // Left tread mark
+      ctx.fillStyle=tr.col;
+      ctx.fillRect(-17,-4,7,8);
+      ctx.fillRect(10,-4,7,8);
+      // Tread ridge detail
+      ctx.fillStyle='rgba(0,0,0,0.45)';
+      ctx.fillRect(-17,-2.5,7,1.5);
+      ctx.fillRect(-17,1,7,1.5);
+      ctx.fillRect(10,-2.5,7,1.5);
+      ctx.fillRect(10,1,7,1.5);
+      ctx.restore();
+    }
+
+    // Tanks
+    this.tanks.forEach(tk=>tk.draw(ctx,t));
+
+    // Bullets
+    this.bullets.forEach(b=>b.draw(ctx));
+
+    // Respawn flash
+    this.tanks.forEach((tk,i)=>{
+      if(!tk.alive&&tk.respawnTimer>0){
+        const alpha=(.5+.5*Math.sin(t*.015))*(tk.respawnTimer/RESPAWN_MS);
+        ctx.globalAlpha=alpha;
+        this.glow(ctx,tk.col,16);
+        ctx.font='18px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillStyle=tk.col;
+        ctx.fillText('P'+(i+1)+' RESPAWNING…',W/2,i===0?ARENA_BOTTOM-90:HUD+90);
+        ctx.globalAlpha=1;ctx.shadowBlur=0;
+      }
+    });
+
+    // ── Night Mode fog overlay ───────────────────
+    if(this.roundNum%NIGHT_ROUND_MOD===NIGHT_ROUND_MOD-1){
+      this.drawNightFog(ctx);
+    }
+
+    // Particles — drawn after fog so explosions are always visible
+    this.ps.draw(ctx);
+
+    // ── HUD ─────────────────────────────────────
+    const p1=this.tanks[0],p2=this.tanks[1];
+    ctx.textBaseline='middle';
+
+    // P1 – label top row, pips middle row
+    ctx.textAlign='left';
+    ctx.font='10px "Press Start 2P"';
+    this.glow(ctx,TANK_DEF[p1.type].col,8);
+    ctx.fillStyle=TANK_DEF[p1.type].col;
+    ctx.fillText('P1',8,13);ctx.shadowBlur=0;
+    for(let k=0;k<KILLS_WIN;k++){
+      const filled=k<p1.kills;
+      ctx.fillStyle=filled?TANK_DEF[p1.type].col:'#1a1a35';
+      if(filled){ctx.shadowColor=TANK_DEF[p1.type].col;ctx.shadowBlur=5;}
+      ctx.fillRect(8+k*13,29,9,9);
+      ctx.shadowBlur=0;
+    }
+    this.drawPUBar(ctx,p1,8,47,false);
+
+    // P2 – label top row, pips middle row
+    ctx.textAlign='right';
+    ctx.font='10px "Press Start 2P"';
+    this.glow(ctx,TANK_DEF[p2.type].col,8);
+    ctx.fillStyle=TANK_DEF[p2.type].col;
+    ctx.fillText('P2',W-8,13);ctx.shadowBlur=0;
+    for(let k=0;k<KILLS_WIN;k++){
+      const filled=k<p2.kills;
+      ctx.fillStyle=filled?TANK_DEF[p2.type].col:'#1a1a35';
+      if(filled){ctx.shadowColor=TANK_DEF[p2.type].col;ctx.shadowBlur=5;}
+      ctx.fillRect(W-17-k*13,29,9,9);
+      ctx.shadowBlur=0;
+    }
+    this.drawPUBar(ctx,p2,W-8,47,true);
+
+    // Pause button – bottom center
+    if(this.canOpenPauseMenu()){
+      const pauseRect=this.getPauseButtonRect();
+      ctx.fillStyle='rgba(0,255,136,.07)';
+      ctx.fillRect(pauseRect.x,pauseRect.y,pauseRect.w,pauseRect.h);
+      ctx.strokeStyle='rgba(0,255,136,.22)';ctx.lineWidth=1;
+      ctx.strokeRect(pauseRect.x,pauseRect.y,pauseRect.w,pauseRect.h);
+      ctx.font='7px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle=PAL.green;
+      ctx.fillText('PAUSE',pauseRect.x+pauseRect.w/2,pauseRect.y+pauseRect.h/2+1);
+    }
+
+    // Center – round info (stacked, no overlap)
+    const isNight=this.roundNum%NIGHT_ROUND_MOD===NIGHT_ROUND_MOD-1;
+    ctx.font='8px "Press Start 2P"';ctx.textAlign='center';ctx.fillStyle=isNight?'#6688cc':PAL.dim;
+    ctx.fillText('RND '+(this.roundNum+1)+(isNight?'  ☾ NIGHT':'')+'   KILLS '+p1.roundKills+'-'+p2.roundKills,W/2,11);
+    ctx.font='7px "Press Start 2P"';ctx.fillStyle='#2a2a44';
+    ctx.fillText('ROUND TO '+ROUND_KILLS_TO_WIN+'   MATCH TO '+KILLS_WIN,W/2,24);
+    if(this.isOnlineMode()){
+      ctx.font='7px "Press Start 2P"';ctx.fillStyle='#556677';
+      ctx.fillText('ROOM '+this.online.roomCode,W/2,37);
+    }
+
+    // Kill feed
+    this.killFeed.forEach((kf,i)=>{
+      const alpha=Math.min(1,kf.timer/500);
+      ctx.globalAlpha=alpha;
+      ctx.font='8px "Press Start 2P"';ctx.textAlign='center';
+      ctx.fillStyle=kf.col;ctx.shadowColor=kf.col;ctx.shadowBlur=6;
+      ctx.fillText(kf.text,W/2,HUD+20+i*16);
+      ctx.shadowBlur=0;ctx.globalAlpha=1;
+    });
+
+    // Countdown
+    if(!this.gameReady){
+      ctx.fillStyle='rgba(0,0,0,.5)';ctx.fillRect(0,HUD,W,AH);
+      const cv=this.countdownVal;
+      const isNightCd=this.roundNum%NIGHT_ROUND_MOD===NIGHT_ROUND_MOD-1;
+      if(isNightCd){
+        ctx.font='11px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillStyle='#4466cc';ctx.shadowColor='#2244aa';ctx.shadowBlur=16;
+        ctx.fillText('☾  NIGHT MODE  ☾',W/2,arenaMidY-68);
+        ctx.font='8px "Press Start 2P"';ctx.fillStyle='#334488';ctx.shadowBlur=0;
+        ctx.fillText('USE YOUR RADAR — STAY SHARP',W/2,arenaMidY-44);
+      }
+      ctx.font='80px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+      const goColor=cv===1?PAL.red:cv===2?PAL.yellow:cv===0?PAL.green:PAL.white;
+      ctx.fillStyle=goColor;
+      ctx.shadowColor=goColor;ctx.shadowBlur=40;
+      ctx.fillText(cv>0?cv:'GO!',W/2,arenaMidY);ctx.shadowBlur=0;
+    }
+
+    // Round end banner
+    if(this.matchOver){
+      const wt=Math.min(1,(this.winTimer)/500);
+      ctx.globalAlpha=wt*.75;
+      ctx.fillStyle='rgba(0,0,0,.5)';ctx.fillRect(0,HUD,W,AH);
+      ctx.globalAlpha=wt;
+      if(this.winner){
+        const wdef=TANK_DEF[this.winner.type];
+        ctx.font='18px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillStyle=wdef.col;ctx.shadowColor=wdef.col;ctx.shadowBlur=20;
+        ctx.fillText('P'+(this.winner.playerNum)+' TAKES THE ROUND!',W/2,arenaMidY-20);
+        ctx.shadowBlur=0;
+        ctx.font='18px "Press Start 2P"';ctx.fillStyle=PAL.white;
+        ctx.fillText('MATCH SCORE '+(this.winner.playerNum===1?this.tanks[0].kills+1:this.tanks[0].kills)+' - '+(this.winner.playerNum===2?this.tanks[1].kills+1:this.tanks[1].kills),W/2,arenaMidY+18);
+      }
+      ctx.globalAlpha=1;
+    }
+
+    if(this.input.shouldShowTouchControls()){
+      this.drawControlDock(ctx);
+      this.drawTouchControls(ctx);
+    }
+  }
+
+  drawPause(ctx){
+    this.drawPlay(ctx);
+    ctx.fillStyle='rgba(0,0,0,.66)';
+    ctx.fillRect(0,0,W,H);
+    const panel={x:W/2-170,y:H/2-150,w:340,h:240};
+    ctx.fillStyle='rgba(8,10,24,.96)';
+    ctx.fillRect(panel.x,panel.y,panel.w,panel.h);
+    ctx.strokeStyle='rgba(0,255,136,.24)';
+    ctx.lineWidth=2;
+    ctx.strokeRect(panel.x,panel.y,panel.w,panel.h);
+    this.glow(ctx,PAL.yellow,10);
+    this.txt(ctx,'PAUSED',W/2,panel.y+38,13,PAL.yellow);
+    ctx.shadowBlur=0;
+    ctx.font='8px "Press Start 2P"';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillStyle=PAL.dim;
+    ctx.fillText(this.pauseReason||'GAME PAUSED',W/2,panel.y+66);
+    const opts=this.getPauseOptions();
+    opts.forEach((opt,i)=>{
+      const rect=this.getPauseHitboxes(opts)[i].rect;
+      const sel=i===this.pauseSel;
+      if(sel){
+        ctx.fillStyle='rgba(0,255,136,.08)';
+        ctx.fillRect(rect.x,rect.y,rect.w,rect.h);
+        ctx.strokeStyle='rgba(0,255,136,.24)';
+        ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);
+      }
+      ctx.font='18px "Press Start 2P"';
+      ctx.fillStyle=sel?PAL.green:PAL.white;
+      ctx.fillText(opt,rect.x+rect.w/2,rect.y+rect.h/2+1);
+    });
+    ctx.font='8px "Press Start 2P"';
+    ctx.fillStyle=PAL.dim;
+    ctx.fillText(this.input.shouldShowTouchControls()?'TAP OPTION TO CONFIRM':'ESC RESUME   ENTER SELECT',W/2,panel.y+panel.h-26);
+  }
+
+  drawAttract(ctx){
+    const t=this.now;
+    const pt=this.attractTime; // time within current phase
+    const ph=this.attractPhase;
+
+    // ── Shared background ─────────────────────────────────────────────
+    ctx.fillStyle='#07070e';ctx.fillRect(0,0,W,H);
+
+    // Subtle diagonal grid
+    const s=(t*.012)%40;
+    ctx.strokeStyle='rgba(18,18,42,0.7)';ctx.lineWidth=0.7;
+    for(let x2=-s;x2<W+H;x2+=40){ctx.beginPath();ctx.moveTo(x2,0);ctx.lineTo(x2-H*0.5,H);ctx.stroke();}
+
+    // ── Phase 0: TITLE ────────────────────────────────────────────────
+    if(ph===0){
+      // Main title
+      const tg=ctx.createLinearGradient(W/2-160,0,W/2+160,0);
+      tg.addColorStop(0,'#cc7700');tg.addColorStop(0.5,'#ffee88');tg.addColorStop(1,'#cc7700');
+      ctx.font='28px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.shadowColor='#ffaa00';ctx.shadowBlur=20+6*Math.sin(t*0.002);
+      ctx.fillStyle=tg;ctx.fillText('TANK',W/2,220);
+      ctx.font='28px "Press Start 2P"';ctx.fillText('TACTICS',W/2,262);
+      ctx.font='16px "Press Start 2P"';ctx.fillStyle='#666688';ctx.shadowBlur=0;
+      ctx.fillText('RETRO RELOAD',W/2,302);
+
+      // 4 tank icons orbiting the title in a wide oval
+      if(!this._attractTanks){
+        this._attractTanks=TANK_ORDER.map((type,i)=>{
+          const tk=new Tank(type,0,0,0,null,i+1);
+          tk.attractOff=i/4;
+          return tk;
+        });
+      }
+      const cx=W/2,cy=340,rx=200,ry=55;
+      this._attractTanks.forEach(tk=>{
+        const p=(this.attractTankP+tk.attractOff)%1;
+        const θ=p*Math.PI*2;
+        tk.x=cx+rx*Math.cos(θ);
+        tk.y=cy+ry*Math.sin(θ);
+        const vx=-rx*Math.sin(θ),vy=ry*Math.cos(θ);
+        tk.angle=Math.atan2(vx,-vy);
+        tk.alive=true;
+        // Depth scale: tanks behind title appear smaller
+        const depth=0.75+0.25*Math.sin(θ+Math.PI/2);
+        ctx.save();ctx.translate(tk.x,tk.y);ctx.scale(depth,depth);ctx.translate(-tk.x,-tk.y);
+        tk.draw(ctx,t);
+        ctx.restore();
+      });
+
+      // "PRESS ANY KEY" blink
+      const blink=Math.sin(t*0.004)>0;
+      ctx.font='10px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle=blink?PAL.green:'#1a1a35';
+      ctx.shadowColor=PAL.green;ctx.shadowBlur=blink?12:0;
+      ctx.fillText('PRESS ANY KEY TO PLAY',W/2,H-80);
+      ctx.shadowBlur=0;
+
+      // Version/credit line
+      ctx.font='7px "Press Start 2P"';ctx.fillStyle='#2a2a44';
+      ctx.fillText('© RETRO RELOAD  •  ALL RIGHTS RESERVED',W/2,H-52);
+    }
+
+    // ── Phase 1: TANK CHASE ───────────────────────────────────────────
+    else if(ph===1){
+      // Header
+      ctx.font='12px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle='#333355';ctx.fillText('TANK TACTICS  •  RETRO RELOAD',W/2,38);
+
+      // Arena outline (just a rect to suggest the battlefield)
+      ctx.strokeStyle='#1a1a35';ctx.lineWidth=2;
+      ctx.strokeRect(40,80,W-80,760);
+
+      // Oval chase track (faint guide)
+      const cx=W/2,cy=460,rx=200,ry=130;
+      ctx.strokeStyle='rgba(26,26,52,0.6)';ctx.lineWidth=1;
+      ctx.setLineDash([4,8]);
+      ctx.beginPath();ctx.ellipse(cx,cy,rx,ry,0,0,Math.PI*2);ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Init tanks once
+      if(!this._attractTanks){
+        this._attractTanks=TANK_ORDER.map((type,i)=>{
+          const tk=new Tank(type,0,0,0,null,i+1);
+          tk.attractOff=i/4;
+          return tk;
+        });
+      }
+
+      // Position and draw tanks chasing in oval loop
+      // Lead tank (RED, offset 0) is being chased by the others
+      const tanks=this._attractTanks;
+      tanks.forEach(tk=>{
+        const p=(this.attractTankP+tk.attractOff)%1;
+        const θ=p*Math.PI*2;
+        tk.x=cx+rx*Math.cos(θ);
+        tk.y=cy+ry*Math.sin(θ);
+        const vx=-rx*Math.sin(θ),vy=ry*Math.cos(θ);
+        tk.angle=Math.atan2(vx,-vy);
+        tk.alive=true;
+      });
+
+      // Draw track exhaust trails
+      tanks.forEach(tk=>{
+        const def=TANK_DEF[tk.type];
+        ctx.fillStyle=def.col+'22';
+        for(let i=1;i<=5;i++){
+          const tp=(this.attractTankP+tk.attractOff-i*0.008+1)%1;
+          const θt=tp*Math.PI*2;
+          const tx2=cx+rx*Math.cos(θt), ty2=cy+ry*Math.sin(θt);
+          ctx.globalAlpha=(6-i)/6*0.35;
+          ctx.beginPath();ctx.arc(tx2,ty2,5-i*0.6,0,Math.PI*2);ctx.fill();
+        }
+        ctx.globalAlpha=1;
+      });
+
+      // Draw tanks (front ones on top — sort by y)
+      [...tanks].sort((a,b)=>a.y-b.y).forEach(tk=>tk.draw(ctx,t));
+
+      // Occasional "!" exclamation above chase leader (RED tank)
+      const lead=tanks[0];
+      const excTime=(pt%2000)/2000;
+      if(excTime<0.3){
+        const excAlpha=excTime<0.15?excTime/0.15:1-(excTime-0.15)/0.15;
+        ctx.globalAlpha=excAlpha;
+        ctx.font='14px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='bottom';
+        ctx.fillStyle=TANK_DEF.RED.col;ctx.shadowColor=TANK_DEF.RED.col;ctx.shadowBlur=10;
+        ctx.fillText('!',lead.x,lead.y-28);
+        ctx.shadowBlur=0;ctx.globalAlpha=1;
+      }
+
+      // Tank name labels that pop in/cycle
+      const labelIdx=Math.floor(pt/2200)%4;
+      const labelTk=tanks[labelIdx];
+      const labelDef=TANK_DEF[labelTk.type];
+      const lblAlpha=Math.min(1,Math.min(pt%2200,2200-(pt%2200))/300);
+      ctx.globalAlpha=lblAlpha*0.9;
+      ctx.font='8px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='bottom';
+      ctx.fillStyle=labelDef.col;ctx.shadowColor=labelDef.col;ctx.shadowBlur=8;
+      ctx.fillText(labelDef.name,labelTk.x,labelTk.y-34);
+      ctx.shadowBlur=0;ctx.globalAlpha=1;
+
+      // "PRESS ANY KEY" blink at bottom
+      const blink2=Math.sin(t*0.004)>0;
+      ctx.font='10px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle=blink2?PAL.white:'#1a1a35';
+      ctx.shadowColor=PAL.white;ctx.shadowBlur=blink2?8:0;
+      ctx.fillText('PRESS ANY KEY TO PLAY',W/2,H-60);
+      ctx.shadowBlur=0;
+    }
+
+    // ── Phase 2: POWER-UP SHOWCASE ────────────────────────────────────
+    else if(ph===2){
+      const puKeys=Object.keys(PU_DEF);
+      const PU_DESCS={
+        RAPID:'Hold fire to shoot continuously\nat rapid pace',
+        TRIPLE:'Each shot fires 3 bullets\nin a spread pattern',
+        SHIELD:'Absorbs one hit\ncompletely — then gone',
+        BOUNCE:'Bullets ricochet off walls\nup to 6 extra times',
+        BREACH:'Bullets blast through\nand destroy wall segments',
+        GHOST:'Tank phases through walls\nand obstacles',
+        SHRAPNEL:'Bullets explode on wall impact\nshards pass through barriers',
+        HSPEED:'2x speed boost — gauge\nonly drains while moving',
+        RADAR:'Night Mode only: 3 expanding\npulse rings reveal map & enemies',
+        MINE:'Hold fire 3s to place a mine\nbehind tank. Kills anyone.',
+      };
+
+      // Header
+      ctx.font='12px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle='#333355';ctx.fillText('TANK TACTICS  •  RETRO RELOAD',W/2,38);
+
+      // Title
+      const tg2=ctx.createLinearGradient(W/2-120,0,W/2+120,0);
+      tg2.addColorStop(0,'#cc7700');tg2.addColorStop(0.5,'#ffee88');tg2.addColorStop(1,'#cc7700');
+      ctx.font='16px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.shadowColor='#ffaa00';ctx.shadowBlur=10;
+      ctx.fillStyle=tg2;ctx.fillText('POWER-UP ARSENAL',W/2,90);
+      ctx.shadowBlur=0;
+
+      // Thin separator
+      ctx.strokeStyle='#1a1a35';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(40,108);ctx.lineTo(W-40,108);ctx.stroke();
+
+      // Cycle through power-ups — show 3 at a time, scroll every 2.3s
+      const timePerGroup=2300;
+      const groupIdx=Math.floor(pt/timePerGroup)%Math.ceil(puKeys.length/3);
+      const groupT=(pt%timePerGroup)/timePerGroup; // 0-1 within group
+      const slideIn=Math.min(1,groupT*6); // fast slide in
+      const slideOut=groupT>0.85?(groupT-0.85)/0.15:0; // slide out near end
+
+      for(let gi=0;gi<3;gi++){
+        const puIdx=(groupIdx*3+gi)%puKeys.length;
+        const key=puKeys[puIdx];
+        const def=PU_DEF[key];
+        const isNight=key==='RADAR';
+
+        const cardY=124+gi*290; // base position for 3 cards
+        const cardH=270;
+        const cardX=40;
+        const cardW=W-80;
+
+        // Slide animation
+        const offX=(1-slideIn+slideOut)*W*1.1;
+        const dir=gi%2===0?1:-1; // alternate slide directions
+        ctx.save();ctx.translate(offX*dir,0);
+
+        // Card bg
+        ctx.fillStyle=isNight?'rgba(10,10,30,0.92)':'rgba(10,10,24,0.88)';
+        ctx.fillRect(cardX,cardY,cardW,cardH);
+        ctx.strokeStyle=def.col+(isNight?'99':'66');ctx.lineWidth=isNight?2.5:2;
+        ctx.strokeRect(cardX,cardY,cardW,cardH);
+
+        // Large icon circle
+        const icx=cardX+cardW/2;
+        const icy=cardY+90;
+        const pulse=1+0.08*Math.sin(t*0.004+gi);
+        ctx.shadowColor=def.col;ctx.shadowBlur=20*pulse;
+        ctx.fillStyle=def.col+'44';
+        ctx.beginPath();ctx.arc(icx,icy,52*pulse,0,Math.PI*2);ctx.fill();
+        ctx.strokeStyle=def.col;ctx.lineWidth=3;
+        ctx.beginPath();ctx.arc(icx,icy,52*pulse,0,Math.PI*2);ctx.stroke();
+        ctx.fillStyle=def.col;
+        ctx.font=`bold 22px "Press Start 2P"`;ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillText(def.icon,icx,icy);
+        ctx.shadowBlur=0;
+
+        // Name
+        ctx.font='12px "Press Start 2P"';ctx.fillStyle=def.col;ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.shadowColor=def.col;ctx.shadowBlur=6;
+        ctx.fillText(def.label,icx,cardY+162);
+        ctx.shadowBlur=0;
+
+        // Description
+        const lines=(PU_DESCS[key]||'').split('\n');
+        ctx.font='8px "Press Start 2P"';ctx.fillStyle='#8888aa';
+        lines.forEach((ln,li)=>ctx.fillText(ln,icx,cardY+186+li*18));
+
+        // Duration badge
+        const durTxt=key==='HSPEED'?'FUEL-BASED':key==='RADAR'?'☾ NIGHT ONLY':key==='MINE'?'3 MINES':def.dur===0?'PERMANENT':Math.round(def.dur/1000)+'s';
+        ctx.font='7px "Press Start 2P"';ctx.fillStyle=isNight?'#334488':PAL.dim;
+        ctx.fillText(durTxt,icx,cardY+cardH-10);
+
+        ctx.restore();
+      }
+
+      // "PRESS ANY KEY" blink
+      const blink3=Math.sin(t*0.004)>0;
+      ctx.font='10px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle=blink3?PAL.green:'#1a1a35';
+      ctx.shadowColor=PAL.green;ctx.shadowBlur=blink3?12:0;
+      ctx.fillText('PRESS ANY KEY TO PLAY',W/2,H-36);
+      ctx.shadowBlur=0;
+    }
+  }
+
+  drawPUBar(ctx,tank,x,y,right){
+    const pus=[];
+    if(tank.shield)     pus.push({def:PU_DEF.SHIELD,pct:1});
+    if(tank.rapid)      pus.push({def:PU_DEF.RAPID, pct:tank.rapidTimer/PU_DEF.RAPID.dur});
+    if(tank.triple)     pus.push({def:PU_DEF.TRIPLE,pct:tank.tripleTimer/PU_DEF.TRIPLE.dur});
+    if(tank.bounceBonus)pus.push({def:PU_DEF.BOUNCE,pct:tank.bounceTimer/PU_DEF.BOUNCE.dur});
+    if(tank.wallBreak)  pus.push({def:PU_DEF.BREACH,pct:tank.wallBreakTimer/PU_DEF.BREACH.dur});
+    if(tank.ghost)      pus.push({def:PU_DEF.GHOST,     pct:tank.ghostTimer/PU_DEF.GHOST.dur});
+    if(tank.shrapnel)   pus.push({def:PU_DEF.SHRAPNEL,  pct:tank.shrapnelTimer/PU_DEF.SHRAPNEL.dur});
+    if(tank.hspeed)     pus.push({def:PU_DEF.HSPEED,    pct:tank.hspeedFuel/PU_DEF.HSPEED.dur,fuelBased:true});
+    if(tank.radarPing||tank.radarPulses.length>0) pus.push({def:PU_DEF.RADAR,pct:tank.radarPulsesLeft/RADAR_PULSE_COUNT});
+    if(tank.mineCount>0) pus.push({def:PU_DEF.MINE,pct:tank.mineCount/3,mineCount:tank.mineCount});
+    if(!pus.length)return;
+    const barW=82;
+    pus.forEach((p,i)=>{
+      const ly=y+i*13;
+      if(ly>HUD-4)return;
+      // Name label
+      ctx.font='8px "Press Start 2P"';
+      ctx.textAlign=right?'right':'left';
+      ctx.textBaseline='middle';
+      ctx.shadowColor=p.def.col;ctx.shadowBlur=8;
+      ctx.fillStyle=p.def.col;
+      ctx.fillText(p.def.label,x,ly);
+      ctx.shadowBlur=0;
+      // Duration bar (skip for permanent like SHIELD)
+      if(p.mineCount!=null){
+        // Mine count: show dots for remaining mines
+        const bx=right?x-barW:x;
+        for(let mi=0;mi<3;mi++){
+          ctx.fillStyle=mi<p.mineCount?p.def.col:'rgba(0,0,0,.4)';
+          ctx.beginPath();ctx.arc(bx+6+mi*14,ly+6,4,0,Math.PI*2);ctx.fill();
+        }
+      }else if(p.def.dur>0){
+        const bx=right?x-barW:x;
+        ctx.fillStyle='rgba(0,0,0,.5)';ctx.fillRect(bx,ly+5,barW,2);
+        ctx.fillStyle=p.def.col;ctx.fillRect(bx,ly+5,barW*p.pct,2);
+      }
+    });
+  }
+
+  /* ══════════════════════════════════════════════
+     DRAW END
+  ══════════════════════════════════════════════ */
+  drawNightFog(ctx){
+    // ── Which tanks act as the "observer" for this screen? ──────
+    // Online: only the local player's tank reveals terrain.
+    // Single player: only P1 reveals terrain.
+    // Local 2-player (shared screen): both tanks reveal terrain.
+    const isLocal2P=!this.isOnlineMode()&&!this.singlePlayer;
+    const observerNums=this.isOnlineHost()?[1]:this.isOnlineGuest()?[2]:[1];
+    const observers=isLocal2P?this.tanks:this.tanks.filter(t=>observerNums.includes(t.playerNum));
+
+    // ── Build fog canvas ─────────────────────────────────────────
+    if(!this._fogCanvas||this._fogCanvas.width!==W){
+      this._fogCanvas=document.createElement('canvas');
+      this._fogCanvas.width=W;this._fogCanvas.height=H;
+    }
+    const fc=this._fogCanvas.getContext('2d');
+    fc.clearRect(0,HUD,W,AH);
+    fc.globalCompositeOperation='source-over';
+    fc.fillStyle='rgba(0,0,10,0.96)';
+    fc.fillRect(0,HUD,W,AH);
+    fc.globalCompositeOperation='destination-out';
+
+    // Terrain holes: only for observer tanks' personal radar
+    observers.forEach(t=>{
+      if(!t.alive)return;
+      const g=fc.createRadialGradient(t.x,t.y,RADAR_RADIUS*0.65,t.x,t.y,RADAR_RADIUS);
+      g.addColorStop(0,'rgba(0,0,0,1)');
+      g.addColorStop(1,'rgba(0,0,0,0)');
+      fc.fillStyle=g;
+      fc.beginPath();fc.arc(t.x,t.y,RADAR_RADIUS,0,Math.PI*2);fc.fill();
+    });
+    // Terrain holes: sweeping pulse rings (observer tanks only)
+    observers.forEach(t=>{
+      t.radarPulses.forEach(p=>{
+        const fade=Math.max(0,1-p.r/RADAR_PULSE_MAX);
+        const inner=Math.max(0,p.r-RADAR_PULSE_WIDTH);
+        const outer=p.r+12;
+        if(outer<=0)return;
+        const g=fc.createRadialGradient(t.x,t.y,inner,t.x,t.y,outer);
+        g.addColorStop(0,'rgba(0,0,0,0)');
+        g.addColorStop(0.3,`rgba(0,0,0,${0.92*fade})`);
+        g.addColorStop(0.75,`rgba(0,0,0,${0.92*fade})`);
+        g.addColorStop(1,'rgba(0,0,0,0)');
+        fc.fillStyle=g;
+        fc.beginPath();fc.arc(t.x,t.y,outer,0,Math.PI*2);fc.fill();
+      });
+    });
+    fc.globalCompositeOperation='source-over';
+    ctx.drawImage(this._fogCanvas,0,0);
+
+    // ── Hide enemy tank sprites not in radar range ───────────────
+    // Helper: is tank T visible to observer O?
+    const tankVisible=(t,o)=>{
+      if(t===o)return true; // own tank always visible
+      const dist=Math.hypot(t.x-o.x,t.y-o.y);
+      if(dist<RADAR_RADIUS)return true;
+      // Check if pulse ring is sweeping over t right now
+      return o.radarPulses.some(p=>{
+        const inner=Math.max(0,p.r-RADAR_PULSE_WIDTH-12);
+        const outer=p.r+12;
+        return dist>=inner&&dist<=outer;
+      });
+    };
+    this.tanks.forEach(t=>{
+      if(!t.alive)return;
+      const visible=observers.some(o=>o.alive&&tankVisible(t,o));
+      if(!visible){
+        // Paint solid fog over this tank's sprite
+        ctx.fillStyle='rgba(0,0,10,0.97)';
+        ctx.beginPath();ctx.arc(t.x,t.y,30,0,Math.PI*2);ctx.fill();
+      }
+    });
+
+    // ── Always-visible arena perimeter ───────────────────────────
+    ctx.strokeStyle='rgba(80,110,200,0.7)';ctx.lineWidth=3;
+    ctx.strokeRect(1,HUD+1,W-2,AH-2);
+
+    // ── Radar rim dashes on observer tanks ───────────────────────
+    observers.forEach(t=>{
+      if(!t.alive)return;
+      ctx.strokeStyle=TANK_DEF[t.type].col+'44';ctx.lineWidth=1.5;
+      ctx.setLineDash([4,7]);
+      ctx.beginPath();ctx.arc(t.x,t.y,RADAR_RADIUS,0,Math.PI*2);ctx.stroke();
+      ctx.setLineDash([]);
+    });
+
+    // ── Pulse glow rings ─────────────────────────────────────────
+    observers.forEach(t=>{
+      t.radarPulses.forEach(p=>{
+        const fade=Math.max(0,1-p.r/RADAR_PULSE_MAX);
+        if(fade<=0)return;
+        ctx.strokeStyle=`rgba(0,255,136,${fade*0.85})`;
+        ctx.lineWidth=2.5;
+        ctx.shadowColor='#00ff88';ctx.shadowBlur=14*fade;
+        ctx.beginPath();ctx.arc(t.x,t.y,p.r,0,Math.PI*2);ctx.stroke();
+        ctx.shadowBlur=0;
+      });
+    });
+
+    // ── Night atmosphere: faint star dots ────────────────────────
+    const starSeed=this.roundNum*999;
+    ctx.fillStyle='rgba(180,200,255,0.18)';
+    for(let i=0;i<28;i++){
+      const sx=((starSeed*i*137+i*79)%W+W)%W;
+      const sy=HUD+((starSeed*i*53+i*113)%AH+AH)%AH;
+      ctx.beginPath();ctx.arc(sx,sy,0.8,0,Math.PI*2);ctx.fill();
+    }
+  }
+
+  drawEnd(ctx){
+    const t=this.endTimer;
+    ctx.fillStyle=PAL.bg;ctx.fillRect(0,0,W,H);
+    this.ps.draw(ctx);
+
+    const w=this.winner;
+    const loser=this.tanks.find(tk=>tk!==w);
+
+    if(w){
+      const wdef=TANK_DEF[w.type];
+      const centerX=W/2, centerY=H*0.415; // ~431
+
+      // ── Figure-8 victory lap ────────────────────────────────
+      const ω=t*0.002;                   // one full figure-8 every ~3.1 s
+      const Rx=100, Ry=50;
+      const fx=centerX+Rx*Math.sin(ω);
+      const fy=centerY+Ry*Math.sin(2*ω);
+      // Angle follows path tangent so tank always faces direction of travel
+      const vx=Rx*0.002*Math.cos(ω);
+      const vy=Ry*2*0.002*Math.cos(2*ω);
+      const wAngle=Math.atan2(vx,-vy);
+
+      // Pulsing glow halo under winner
+      ctx.save();
+      ctx.translate(fx,fy);
+      const haloPulse=0.55+0.45*Math.sin(t*0.005);
+      const halo=ctx.createRadialGradient(0,0,8,0,0,56);
+      halo.addColorStop(0,wdef.col+'55');
+      halo.addColorStop(1,'transparent');
+      ctx.globalAlpha=haloPulse;
+      ctx.fillStyle=halo;
+      ctx.beginPath();ctx.arc(0,0,56,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=1;
+      ctx.restore();
+
+      // Winner tank – scaled up, angle follows figure-8 tangent
+      ctx.save();
+      ctx.globalAlpha=Math.min(1,t/350);
+      ctx.translate(fx,fy);
+      ctx.rotate(wAngle);
+      ctx.scale(1.35,1.35);
+      this.drawFullTank(ctx,w.type,t);
+      ctx.globalAlpha=1;
+      ctx.restore();
+
+      // ── Loser – crashed to the side, smoking ────────────────
+      if(loser){
+        const lx=W/2+192, ly=centerY+108;
+
+        // Rising smoke column (manually animated with arcs)
+        for(let i=0;i<8;i++){
+          const age=((t*0.6+i*310)%2400)/2400;
+          const sx=lx+(i%2===0?-4:4)+Math.sin(age*Math.PI*3+i)*8;
+          const sy=ly-12-age*88;
+          const sr=4+age*16;
+          ctx.globalAlpha=(1-age)*(0.45+0.2*Math.sin(t*0.003+i));
+          ctx.fillStyle=age<0.45?'#4a4a66':'#252535';
+          ctx.beginPath();ctx.arc(sx,sy,sr,0,Math.PI*2);ctx.fill();
+        }
+        // Occasional ember spark
+        for(let i=0;i<3;i++){
+          const age=((t*1.4+i*500)%900)/900;
+          if(age>0.6)continue;
+          ctx.globalAlpha=(0.6-age)*0.9;
+          ctx.fillStyle=age<0.3?'#ff8800':'#ff4400';
+          const ex=lx+(-6+i*6)+Math.sin(age*8+i)*4;
+          const ey=ly-8-age*28;
+          ctx.beginPath();ctx.arc(ex,ey,2,0,Math.PI*2);ctx.fill();
+        }
+        ctx.globalAlpha=1;
+
+        // Loser tank body – tilted & faded (looking defeated)
+        ctx.save();
+        ctx.translate(lx,ly);
+        ctx.rotate(Math.PI*0.58);   // fallen sideways
+        ctx.globalAlpha=0.48;
+        this.drawFullTank(ctx,loser.type,0);
+        ctx.globalAlpha=1;
+        ctx.restore();
+      }
+
+      // ── Victory banner ──────────────────────────────────────
+      const slide=Math.min(1,t/550);
+      ctx.save();ctx.translate(0,(1-slide)*-90);
+      const wg=ctx.createLinearGradient(W/2-180,0,W/2+180,0);
+      wg.addColorStop(0,wdef.col);wg.addColorStop(0.5,'#ffffff');wg.addColorStop(1,wdef.col);
+      ctx.font='24px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.shadowColor=wdef.col;ctx.shadowBlur=28;
+      ctx.fillStyle=wg;
+      ctx.fillText('PLAYER '+w.playerNum+' WINS!',W/2,112);
+      ctx.shadowBlur=0;
+      ctx.font='9px "Press Start 2P"';ctx.fillStyle=wdef.col;ctx.globalAlpha=0.75;
+      ctx.fillText(wdef.name.toUpperCase()+' VICTORIOUS',W/2,148);
+      ctx.globalAlpha=1;
+      ctx.restore();
+
+      // Stats
+      ctx.font='8px "Press Start 2P"';ctx.textAlign='center';ctx.fillStyle='#333355';
+      ctx.textBaseline='middle';
+      ctx.fillText('ROUND WINS: P1 '+this.tanks[0].kills+'  -  P2 '+this.tanks[1].kills,W/2,174);
+    }
+
+    // ── Menu options ────────────────────────────────────────
+    const opts=this.getEndOptions();
+    const startY=H*0.725;
+    opts.forEach((o,i)=>{
+      const sel=i===this.endSel;
+      const y=startY+i*44;
+      if(sel){
+        ctx.fillStyle='rgba(0,255,136,.06)';ctx.fillRect(W/2-130,y-15,260,30);
+        ctx.strokeStyle='rgba(0,255,136,.25)';ctx.lineWidth=1;
+        ctx.strokeRect(W/2-130,y-15,260,30);
+        ctx.font='16px "Press Start 2P"';ctx.fillStyle=PAL.green;ctx.textAlign='left';
+        this.glow(ctx,PAL.green,8);ctx.fillText('▶',W/2-120,y);
+      }
+      ctx.font='16px "Press Start 2P"';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle=sel?PAL.green:PAL.white;ctx.shadowBlur=sel?6:0;
+      ctx.fillText(o,W/2,y);ctx.shadowBlur=0;
+    });
+    ctx.font='8px "Press Start 2P"';ctx.textAlign='center';ctx.fillStyle=PAL.dim;
+    ctx.textBaseline='middle';
+    ctx.fillText(this.isOnlineGuest()?'HOST DECIDES REMATCH   ESC LEAVE':'↑↓ SELECT   ENTER CONFIRM',W/2,H-28);
+  }
+
+  drawFullTank(ctx,type,t){
+    const d=TANK_DEF[type];
+    const mov=Math.sin(t*.005)*1.5;
+    ctx.fillStyle='#111';ctx.fillRect(-17,-14,7,28);ctx.fillRect(10,-14,7,28);
+    for(let i=0;i<7;i++){
+      const oy=((mov+i*4)%28)-14;
+      ctx.fillStyle='#2a2a2a';ctx.fillRect(-17,oy,7,2.5);ctx.fillRect(10,oy,7,2.5);
+    }
+    ctx.fillStyle=d.dark;ctx.fillRect(-10,-13,20,26);
+    ctx.fillStyle=d.col; ctx.fillRect(-9,-12,18,24);
+    ctx.fillStyle=d.dark;ctx.fillRect(-9,-2,18,4);
+    ctx.fillStyle=d.dark;ctx.fillRect(-6,-6,12,12);
+    ctx.fillStyle=d.col; ctx.fillRect(-5,-5,10,10);
+    ctx.fillStyle=d.dark;ctx.fillRect(-3.5,-20,7,20);
+    ctx.fillStyle='#555'; ctx.fillRect(-2.5,-20,5,19);
+    ctx.fillStyle=d.dark;ctx.fillRect(-4.5,-22,9,4);
+  }
+
+  getTouchLayout(){
+    if(this.state!==STATE.PLAYING||!this.input.shouldShowTouchControls())return null;
+    return{
+      joystick:{x:122,y:ARENA_BOTTOM+94,r:62},
+      fire:{x:446,y:ARENA_BOTTOM+92,r:56},
+    };
+  }
+
+  pointInRect(pt,rect){
+    return pt&&rect&&pt.x>=rect.x&&pt.x<=rect.x+rect.w&&pt.y>=rect.y&&pt.y<=rect.y+rect.h;
+  }
+
+  getMenuLayout(){
+    if(this.menuMode==='share'){
+      return{
+        startY:736,
+        gap:54,
+        statusY:864,
+        noticeY:890,
+        hintText:'↑↓ SELECT   ENTER CONFIRM   ESC BACK',
+        touchHint:'TAP AN OPTION   OR TAP BACK',
+      };
+    }
+    const subMenu=this.menuMode!=='main';
+    return{
+      startY:220,
+      gap:52,
+      statusY:396,
+      noticeY:418,
+      hintText:subMenu?'↑↓ PICK MODE   ENTER SELECT   ESC BACK':'↑↓ NAVIGATE   ENTER SELECT',
+      touchHint:subMenu?'TAP A MODE   OR TAP BACK':'TAP A MENU ITEM TO SELECT',
+    };
+  }
+
+  getMenuHitboxes(){
+    const {items}=this.getActiveMenuContext();
+    const {startY,gap}=this.getMenuLayout();
+    return items.map((item,i)=>({item,index:i,rect:{x:W/2-170,y:startY+i*gap-22,w:340,h:44}}));
+  }
+
+  handleMenuTap(pt){
+    if(this.menuMode==='powerups'){
+      this.menuMode='main';this.audio.menuMove();return true;
+    }
+    const {selectedKey}=this.getActiveMenuContext();
+    for(const hit of this.getMenuHitboxes()){
+      if(this.pointInRect(pt,hit.rect)&&!hit.item.dim){
+        this[selectedKey]=hit.index;
+        this.audio.menuSelect();
+        hit.item.fn();
+        return true;
+      }
+    }
+    return false;
+  }
+  getLobbyCodeRect(){
+    return{x:110,y:238,w:380,h:84};
+  }
+  getLobbyCancelRect(){
+    return{x:190,y:456,w:220,h:42};
+  }
+  handleLobbyTap(pt){
+    if(this.pointInRect(pt,this.getLobbyCodeRect())){
+      this.copyRoomCode();
+      this.audio.menuSelect();
+      return true;
+    }
+    if(this.pointInRect(pt,this.getLobbyCancelRect())){
+      this.audio.menuMove();
+      this.goMenu('Room closed.');
+      return true;
+    }
+    return false;
+  }
+
+  getSelectBackRect(){
+    return{x:20,y:16,w:84,h:24};
+  }
+
+  getSelectCardRects(){
+    const tankW=250,tankH=240,gapX=18,gapY=18;
+    const startX=(W-(tankW*2+gapX))/2;
+    const startY=86;
+    return TANK_ORDER.map((type,i)=>({
+      index:i,
+      rect:{
+        x:startX+(i%2)*(tankW+gapX),
+        y:startY+Math.floor(i/2)*(tankH+gapY),
+        w:tankW,
+        h:tankH,
+      },
+    }));
+  }
+
+  handleSelectTap(pt){
+    if(this.input.shouldShowTouchControls()&&this.pointInRect(pt,this.getSelectBackRect())){
+      this.audio.menuMove();
+      this.goMenu();
+      return true;
+    }
+    const activePlayer=this.getSelectActivePlayer();
+    if(!activePlayer)return false;
+    for(const hit of this.getSelectCardRects()){
+      if(!this.pointInRect(pt,hit.rect))continue;
+      if(this.isOnlineMode()){
+        const currentSel=activePlayer===1?this.p1Sel:this.p2Sel;
+        const ready=currentSel===hit.index;
+        this.updateOnlineSelection(hit.index,ready);
+        this.audio[ready?'menuSelect':'menuMove']();
+      }else if(activePlayer===1){
+        if(this.p1Sel===hit.index){
+          this.p1Ready=true;
+          this.audio.menuSelect();
+        }else{
+          this.p1Sel=hit.index;
+          if(this.singlePlayer)this.p2Sel=(this.p1Sel+1)%TANK_ORDER.length;
+          this.audio.menuMove();
+        }
+      }else{
+        if(this.p2Sel===hit.index){
+          this.p2Ready=true;
+          this.audio.menuSelect();
+        }else{
+          this.p2Sel=hit.index;
+          this.audio.menuMove();
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
+  getEndHitboxes(opts){
+    const startY=H/2+85;
+    return opts.map((opt,i)=>({index:i,rect:{x:W/2-130,y:startY+i*40-15,w:260,h:30}}));
+  }
+
+  getPauseButtonRect(){
+    return{x:W/2-36,y:46,w:72,h:12};
+  }
+
+  handlePauseButtonTap(pt){
+    return this.pointInRect(pt,this.getPauseButtonRect());
+  }
+
+  getPauseHitboxes(opts){
+    const startY=H/2-26;
+    return opts.map((opt,i)=>({index:i,rect:{x:W/2-120,y:startY+i*48,w:240,h:34}}));
+  }
+
+  handlePauseTap(pt,opts){
+    for(const hit of this.getPauseHitboxes(opts)){
+      if(!this.pointInRect(pt,hit.rect))continue;
+      this.pauseSel=hit.index;
+      this.commitPauseAction(opts[this.pauseSel]);
+      return true;
+    }
+    return false;
+  }
+
+  handleEndTap(pt,opts){
+    for(const hit of this.getEndHitboxes(opts)){
+      if(!this.pointInRect(pt,hit.rect))continue;
+      this.endSel=hit.index;
+      this.audio.menuSelect();
+      this.commitEndAction(opts[this.endSel]);
+      return true;
+    }
+    return false;
+  }
+
+  drawControlDock(ctx){
+    const dockY=ARENA_BOTTOM;
+    const dockH=H-ARENA_BOTTOM;
+    const g=ctx.createLinearGradient(0,dockY,0,H);
+    g.addColorStop(0,'rgba(5,8,20,.96)');
+    g.addColorStop(.55,'rgba(6,10,18,.98)');
+    g.addColorStop(1,'rgba(3,4,10,1)');
+    ctx.fillStyle=g;
+    ctx.fillRect(0,dockY,W,dockH);
+    ctx.strokeStyle='rgba(0,255,136,.16)';
+    ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(0,dockY+.5);ctx.lineTo(W,dockY+.5);ctx.stroke();
+    ctx.strokeStyle='rgba(58,58,98,.34)';
+    ctx.beginPath();ctx.moveTo(W/2,dockY+22);ctx.lineTo(W/2,H-20);ctx.stroke();
+    ctx.fillStyle='rgba(0,255,136,.045)';
+    ctx.fillRect(20,dockY+18,236,dockH-34);
+    ctx.fillStyle='rgba(255,64,64,.05)';
+    ctx.fillRect(W-256,dockY+18,236,dockH-34);
+  }
+
+  drawTouchControls(ctx){
+    const layout=this.getTouchLayout();
+    if(!layout)return;
+    const joy=this.input.joystick;
+    const knobX=layout.joystick.x+joy.x*34;
+    const knobY=layout.joystick.y+joy.y*34;
+
+    ctx.save();
+    ctx.globalAlpha=.96;
+
+    ctx.fillStyle='rgba(4,8,18,.82)';
+    ctx.beginPath();ctx.arc(layout.joystick.x,layout.joystick.y,layout.joystick.r+16,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='rgba(0,255,136,.22)';
+    ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(layout.joystick.x,layout.joystick.y,layout.joystick.r+10,0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle='rgba(0,255,136,.18)';
+    ctx.beginPath();ctx.arc(layout.joystick.x,layout.joystick.y,layout.joystick.r-8,0,Math.PI*2);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(layout.joystick.x-layout.joystick.r+10,layout.joystick.y);ctx.lineTo(layout.joystick.x+layout.joystick.r-10,layout.joystick.y);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(layout.joystick.x,layout.joystick.y-layout.joystick.r+10);ctx.lineTo(layout.joystick.x,layout.joystick.y+layout.joystick.r-10);ctx.stroke();
+    ctx.fillStyle='rgba(0,255,136,.12)';
+    ctx.beginPath();ctx.arc(layout.joystick.x,layout.joystick.y,layout.joystick.r-16,0,Math.PI*2);ctx.fill();
+    ctx.shadowColor=PAL.green;ctx.shadowBlur=16;
+    ctx.fillStyle=joy.active?PAL.green:'#00aa66';
+    ctx.beginPath();ctx.arc(knobX,knobY,26,0,Math.PI*2);ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.fillStyle='#04110c';
+    ctx.beginPath();ctx.arc(knobX,knobY,12,0,Math.PI*2);ctx.fill();
+
+    ctx.fillStyle='rgba(18,0,0,.84)';
+    ctx.beginPath();ctx.arc(layout.fire.x,layout.fire.y,layout.fire.r+18,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='rgba(255,96,96,.28)';
+    ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(layout.fire.x,layout.fire.y,layout.fire.r+10,0,Math.PI*2);ctx.stroke();
+    ctx.shadowColor=PAL.red;ctx.shadowBlur=18;
+    ctx.fillStyle=this.input.fire.active?PAL.red:'#bb2020';
+    ctx.beginPath();ctx.arc(layout.fire.x,layout.fire.y,layout.fire.r,0,Math.PI*2);ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.fillStyle='rgba(255,255,255,.12)';
+    ctx.beginPath();ctx.arc(layout.fire.x-10,layout.fire.y-12,layout.fire.r*.55,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fff4ee';
+    ctx.font='13px "Press Start 2P"';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('FIRE',layout.fire.x,layout.fire.y+2);
+
+    ctx.font='8px "Press Start 2P"';
+    ctx.fillStyle=PAL.dim;
+    ctx.fillText('MOVE',layout.joystick.x,layout.joystick.y+layout.joystick.r+26);
+    ctx.fillText('FIRE',layout.fire.x,layout.fire.y+layout.fire.r+24);
+    ctx.restore();
+  }
+
+  renderGameToText(){
+    const states=['BOOT','SPLASH','MENU','SELECT','PLAYING','END','LOBBY','PAUSE'];
+    const payload={
+      mode:states[this.state],
+      menuMode:this.menuMode,
+      coordSystem:'origin top-left; x increases right; y increases down; arena begins below HUD at y=60',
+      singlePlayer:this.singlePlayer,
+      gameMode:this.gameMode,
+      online:this.isOnlineMode()?{playerNum:this.online.playerNum,roomCode:this.online.roomCode,status:this.online.status}:null,
+      share:this.menuMode==='share'?{url:this.getShareUrl(),status:this.shareQrStatus,notice:this.shareNotice}:null,
+      round:this.roundNum+1,
+      roundTarget:ROUND_KILLS_TO_WIN,
+      matchTarget:KILLS_WIN,
+      countdown:this.gameReady?null:this.countdownVal,
+      players:this.tanks.map(t=>({
+        player:t.playerNum,type:t.type,alive:t.alive,
+        x:Math.round(t.x),y:Math.round(t.y),angle:Number(t.angle.toFixed(2)),
+        roundKills:t.roundKills,matchWins:t.kills,
+        isCPU:t.isCPU,
+        shield:t.shield,ghost:t.ghost,rapid:t.rapid,triple:t.triple,bounce:t.bounceBonus,breach:t.wallBreak,
+      })),
+      touchControls:this.getTouchLayout(),
+      bullets:this.bullets.filter(b=>b.active).map(b=>({x:Math.round(b.x),y:Math.round(b.y),owner:b.owner.playerNum,bounces:b.bounces,wallBreak:b.wallBreak})),
+      powerups:this.powerups.filter(p=>p.active).map(p=>({type:p.type,x:Math.round(p.x),y:Math.round(p.y)})),
+      winner:this.winner?this.winner.playerNum:null,
+      pauseOptions:this.state===STATE.PAUSE?this.getPauseOptions():null,
+    };
+    return JSON.stringify(payload);
+  }
+
+  normalizeAngle(a){
+    return ((a+Math.PI)%(Math.PI*2)+Math.PI*2)%(Math.PI*2)-Math.PI;
+  }
+
+  hasLineOfSight(ax,ay,bx,by){
+    const dx=bx-ax,dy=by-ay;
+    const dist=Math.hypot(dx,dy);
+    const steps=Math.max(2,Math.ceil(dist/18));
+    for(let i=1;i<steps;i++){
+      const t=i/steps;
+      if(this.arena.solid(ax+dx*t,ay+dy*t))return false;
+    }
+    return true;
+  }
+
+  cellKey(col,row){
+    return `${col},${row}`;
+  }
+
+  isBotNavCellOpen(col,row){
+    if(!this.arena.inBounds(col,row)||this.arena.isWall(col,row))return false;
+    const center=this.arena.cellCenter(col,row);
+    return this.arena.canTankOccupy(center.x,center.y,14);
+  }
+
+  findBotPath(startCell,goalCell){
+    const startKey=this.cellKey(startCell.col,startCell.row);
+    const goalKey=this.cellKey(goalCell.col,goalCell.row);
+    if(startKey===goalKey)return[startCell];
+    const queue=[startCell];
+    const visited=new Set([startKey]);
+    const prev=new Map();
+    const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+
+    while(queue.length){
+      const cur=queue.shift();
+      for(const[dc,dr]of dirs){
+        const next={col:cur.col+dc,row:cur.row+dr};
+        const key=this.cellKey(next.col,next.row);
+        if(visited.has(key)||!this.isBotNavCellOpen(next.col,next.row))continue;
+        visited.add(key);
+        prev.set(key,cur);
+        if(key===goalKey){
+          const path=[next];
+          let back=cur;
+          while(back){
+            path.push(back);
+            const backKey=this.cellKey(back.col,back.row);
+            back=prev.get(backKey)||null;
+          }
+          return path.reverse();
+        }
+        queue.push(next);
+      }
+    }
+    return[startCell];
+  }
+
+  getBotPathPlan(bot,target){
+    const nav=bot.botNav;
+    const startCell=this.arena.worldToCell(bot.x,bot.y);
+    const goalCell=this.arena.worldToCell(target.x,target.y);
+    const startKey=this.cellKey(startCell.col,startCell.row);
+    const goalKey=this.cellKey(goalCell.col,goalCell.row);
+    const planExpired=nav.lastPlanTime<0||(this.now-nav.lastPlanTime)>650;
+    const goalMoved=goalKey!==nav.goalKey;
+    const startMoved=startKey!==nav.startKey;
+    if(planExpired||goalMoved||startMoved||nav.forceRepath||!nav.path.length){
+      nav.path=this.findBotPath(startCell,goalCell);
+      nav.lastPlanTime=this.now;
+      nav.startKey=startKey;
+      nav.goalKey=goalKey;
+      nav.forceRepath=false;
+    }
+    let nextCell=null;
+    if(nav.path.length>1){
+      const currentIdx=nav.path.findIndex(cell=>cell.col===startCell.col&&cell.row===startCell.row);
+      nextCell=nav.path[currentIdx>=0?Math.min(currentIdx+1,nav.path.length-1):1];
+    }else{
+      nextCell=goalCell;
+    }
+    const waypoint=this.arena.cellCenter(nextCell.col,nextCell.row);
+    nav.waypoint=waypoint;
+    return{
+      path:nav.path,
+      waypoint,
+      needsPath:nav.path.length>1,
+      startCell,
+      goalCell,
+    };
+  }
+
+  genTunnels(){
+    const palettes=['#4499ff','#ff8833','#33ff99','#cc44ff'];
+    const col=palettes[Math.floor(Math.random()*palettes.length)];
+    const findFloor=(rowMin,rowMax)=>{
+      for(let i=0;i<100;i++){
+        const c=1+Math.floor(Math.random()*(COLS-2));
+        const r=rowMin+Math.floor(Math.random()*(rowMax-rowMin));
+        if(!this.arena.isWall(c,r))return{col:c,row:r};
+      }
+      return{col:2,row:rowMin+1};
+    };
+    return[{a:findFloor(1,ROWS/2-2),b:findFloor(ROWS/2+2,ROWS-1),col}];
+  }
+
+  getBotInput(bot,enemy){
+    const cmd={left:false,right:false,up:false,down:false,fire:false};
+    if(!bot.alive||!enemy)return cmd;
+    const target=enemy.alive?enemy:{x:W/2,y:H/2};
+
+    // ── BULLET DODGE (highest priority) ──────────────────────────────
+    let dodgeAngle=null;
+    for(const b of this.bullets){
+      if(!b.active||b.owner===bot)continue;
+      const bx=bot.x-b.x, by=bot.y-b.y;
+      const d=Math.hypot(bx,by);
+      if(d>150)continue;
+      const spd=Math.hypot(b.vx,b.vy);
+      if(spd<0.1)continue;
+      // Only dodge if bullet is heading toward us (dot > 0.65)
+      const dot=(bx*b.vx+by*b.vy)/(d*spd);
+      if(dot<0.65)continue;
+      // Strafe perpendicular: choose side away from bullet's lateral axis
+      const cross=bx*b.vy-by*b.vx;
+      dodgeAngle=Math.atan2(b.vx,-b.vy)+(cross>=0?Math.PI/2:-Math.PI/2);
+      break;
+    }
+    if(dodgeAngle!==null){
+      const dd=this.normalizeAngle(dodgeAngle-bot.angle);
+      if(dd>0.15)cmd.right=true;
+      if(dd<-0.15)cmd.left=true;
+      cmd.up=Math.abs(dd)<1.2;
+      cmd.down=!cmd.up;
+      // Opportunistic fire while dodging
+      const ed=this.normalizeAngle(Math.atan2(target.x-bot.x,-(target.y-bot.y))-bot.angle);
+      if(this.hasLineOfSight(bot.x,bot.y,target.x,target.y)&&Math.abs(ed)<0.18)cmd.fire=true;
+      return cmd;
+    }
+
+    // ── POWER-UP GOAL ─────────────────────────────────────────────────
+    let navGoal=target, isPUGoal=false, bestPUDist=Infinity;
+    for(const pu of this.powerups){
+      if(!pu.active)continue;
+      const bd=Math.hypot(pu.x-bot.x,pu.y-bot.y);
+      const ed=Math.hypot(pu.x-target.x,pu.y-target.y);
+      if(bd<ed&&bd<bestPUDist){bestPUDist=bd;navGoal=pu;isPUGoal=true;}
+    }
+
+    // ── TUNNEL SHORTCUT ───────────────────────────────────────────────
+    if(bot.tunnelCooldown<=0&&this.arena.tunnels.length>0){
+      const dd=Math.hypot(navGoal.x-bot.x,navGoal.y-bot.y);
+      for(const t of this.arena.tunnels){
+        for(const [en,ex] of [[t.a,t.b],[t.b,t.a]]){
+          const ec=this.arena.cellCenter(en.col,en.row);
+          const xc=this.arena.cellCenter(ex.col,ex.row);
+          if(Math.hypot(ec.x-bot.x,ec.y-bot.y)+Math.hypot(navGoal.x-xc.x,navGoal.y-xc.y)<dd*0.8){navGoal=ec;break;}
+        }
+      }
+    }
+
+    // ── PATHFINDING ───────────────────────────────────────────────────
+    const plan=this.getBotPathPlan(bot,navGoal);
+    const los=this.hasLineOfSight(bot.x,bot.y,target.x,target.y);
+    const frontX=bot.x+Math.sin(bot.angle)*26;
+    const frontY=bot.y-Math.cos(bot.angle)*26;
+    const frontBlocked=this.arena.solid(frontX,frontY);
+    // When ghost is active, tank can drive through walls — skip path planning
+    const shouldPath=!bot.ghost&&plan.needsPath&&(!los||frontBlocked);
+    const navTarget=shouldPath?plan.waypoint:navGoal;
+    const dx=navTarget.x-bot.x, dy=navTarget.y-bot.y;
+    const dist=Math.hypot(dx,dy);
+    const targetAngle=Math.atan2(dx,-dy);
+    const delta=this.normalizeAngle(targetAngle-bot.angle);
+    const enemyAngle=Math.atan2(target.x-bot.x,-(target.y-bot.y));
+    const enemyDelta=this.normalizeAngle(enemyAngle-bot.angle);
+    // Use different phase offsets per player to desync combat oscillation
+    const phase=Math.sin((this.now+bot.playerNum*1300)/750);
+
+    // ── STUCK DETECTION ───────────────────────────────────────────────
+    const movement=Math.hypot(bot.x-bot.botNav.lastX,bot.y-bot.botNav.lastY);
+    if(shouldPath&&dist>18&&movement<0.45)bot.botNav.stuckMs+=this.dt;
+    else bot.botNav.stuckMs=0;
+    if(bot.botNav.stuckMs>420)bot.botNav.forceRepath=true;
+    if(bot.botNav.stuckMs>1500){
+      // Hard escape: back up and sidestep to break deadlock
+      cmd.down=true;
+      cmd.left=(bot.playerNum+Math.floor(this.now/900))%2===0;
+      cmd.right=!cmd.left;
+      bot.botNav.stuckMs=200;
+      return cmd;
+    }
+    bot.botNav.lastX=bot.x; bot.botNav.lastY=bot.y;
+
+    // Steer toward nav target
+    if(delta>0.12)cmd.right=true;
+    if(delta<-0.12)cmd.left=true;
+
+    // ── MOVEMENT BEHAVIOR ─────────────────────────────────────────────
+    if(frontBlocked&&Math.abs(delta)<0.55){
+      cmd.left=delta<=0; cmd.right=delta>0; cmd.down=true;
+    }else if(shouldPath){
+      cmd.up=Math.abs(delta)<1.05;
+      if(dist<14)bot.botNav.forceRepath=true;
+    }else if(isPUGoal){
+      cmd.up=Math.abs(delta)<1.0;
+    }else if(dist>210){
+      cmd.up=Math.abs(delta)<1.0;
+    }else if(dist<160){
+      // Combat range: circle-strafe around the enemy
+      // Re-steer to face enemy
+      if(enemyDelta>0.12)cmd.right=true;
+      if(enemyDelta<-0.12)cmd.left=true;
+      // Advance/retreat based on distance
+      cmd.up=dist>100;
+      cmd.down=dist<75;
+      // Add lateral drift: when well-aimed, orbit sideways
+      if(Math.abs(enemyDelta)<0.35){
+        if(phase>=0){cmd.right=true;cmd.up=true;}
+        else{cmd.left=true;cmd.up=true;}
+      }
+    }else if(!los){
+      cmd.up=Math.abs(delta)<0.9;
+    }else if(phase>0.7){
+      cmd.up=true;
+    }
+
+    // ── SHOOTING ──────────────────────────────────────────────────────
+    if(los&&Math.abs(enemyDelta)<0.18){
+      cmd.fire=true;
+    }else if(bot.bounceBonus&&!los){
+      // Ricochet: simulate bounce trajectories and aim at one that reaches the enemy
+      const bounceAngle=this.findBotRicochetAngle(bot,target);
+      if(bounceAngle!==null){
+        const bd=this.normalizeAngle(bounceAngle-bot.angle);
+        if(Math.abs(bd)<0.15)cmd.fire=true;
+        else{if(bd>0)cmd.right=true;else cmd.left=true;}
+      }
+    }
+
+    return cmd;
+  }
+
+  // Simulate 24 bullet angles with one wall bounce; return angle whose path comes closest to target
+  findBotRicochetAngle(bot,target){
+    let bestAngle=null, bestDist=60;
+    for(let ai=0;ai<24;ai++){
+      const angle=(ai/24)*Math.PI*2;
+      let x=bot.x, y=bot.y;
+      let vx=Math.sin(angle)*BULLET_SPD;
+      let vy=-Math.cos(angle)*BULLET_SPD;
+      let bounced=false;
+      for(let s=0;s<40;s++){
+        x+=vx; y+=vy;
+        if(x<0||x>W||y<HUD||y>ARENA_BOTTOM)break;
+        if(this.arena.solid(x,y)){
+          if(bounced)break;
+          const hb=this.arena.solid(x-vx,y);
+          const vb=this.arena.solid(x,y-vy);
+          if(vb&&!hb)vy=-vy;
+          else if(hb&&!vb)vx=-vx;
+          else{vx=-vx;vy=-vy;}
+          bounced=true;
+          x+=vx; y+=vy;
+        }
+        if(bounced){
+          const d=Math.hypot(x-target.x,y-target.y);
+          if(d<bestDist){bestDist=d;bestAngle=angle;}
+        }
+      }
+    }
+    return bestAngle;
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   BOOT
+══════════════════════════════════════════════════ */
+const game=new Game();
+window.addEventListener('DOMContentLoaded',()=>game.init());
+</script>
+</body>
+</html>
