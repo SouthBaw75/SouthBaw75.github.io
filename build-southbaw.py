@@ -59,6 +59,8 @@ PROJECTS = [
     ("11", "11", "SCAVENGE RABBIT",  "SCAVENGER HUNTS",           "game", "https://scavenge-rabbit.netlify.app/",                   "scavenge.jpg"),
     ("12", "12", "BENNY'S BLACKBERRIES", "A STORY ABOUT SHARING", "game", "https://bennys-blackberries.netlify.app/",               "bennys.jpg"),
     ("13", "13", "LUKE'S ROAD TRIP", "DRIVING GAME",              "game", "https://lukes-road-trip-full-project.netlify.app/",      "lukes.jpg"),
+    # hosted in this repo under aegis/ rather than on netlify
+    ("26", "26", "AEGIS",            "ORBITAL DEFENSE",           "game", "https://briananthonysonnier.com/aegis/",                 "aegis.jpg"),
     # apps and tools
     ("14", "14", "CAMPFIRE",         "PRIVATE SOCIAL APP",        "app",  "https://campfire-circles.netlify.app/",                  "campfire.jpg"),
     ("15", "15", "TIDAL PM",         "PROJECT MANAGEMENT",        "app",  "https://tidal-pm.netlify.app/",                          "tidal.jpg"),
