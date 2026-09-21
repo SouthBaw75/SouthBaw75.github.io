@@ -66,14 +66,12 @@ PROJECTS = [
     ("16", "16", "MTG LIFE COUNTER", "LIFE COUNTER",              "app",  "https://magicthegatheringlifecounter-southbaw.netlify.app/", "mtglife.jpg"),
     ("17", "17", "QSNAP",            "PHOTO TO QR",               "app",  "https://qsnap-app.netlify.app/",                         "qsnap.jpg"),
     ("18", "18", "ABIDE",            "APP",                       "app",  "https://abide-app-brian.netlify.app/",                   "abide.jpg"),
-    ("19", "19", "RABBIT LAB",       "PAYLOAD TESTER",            "app",  "https://rabbit-payload-lab.netlify.app/",                "rabbitlab.jpg"),
     ("20", "20", "VOXBOX",           "APP",                       "app",  "https://voxbox-app.netlify.app/",                        None),
     # sites
     ("21", "21", "THE LOOKING GLASS","ETCHED MIRROR STUDIO",      "web",  "https://looking-glass-studio.netlify.app/",              "lookingglass.jpg"),
     ("22", "22", "CASTAWAY PIZZA",   "RESTAURANT SITE",           "web",  "https://castaway-pizza-co.netlify.app/",                 "castaway.jpg"),
     ("23", "23", "LITTLE GLOW",      "ILLUSTRATED STORY",         "web",  "https://little-glow-story.netlify.app/",                 "littleglow.jpg"),
     ("24", "24", "MIRAGE",           "SHOP DEMO",                 "web",  "https://mirage-shop-demo.netlify.app/",                  "mirage.jpg"),
-    ("25", "25", "BANNERFALL",       "PROTOTYPE",                 "web",  "https://bannerfall-demo.netlify.app/",                   "bannerfall.jpg"),
 ]
 
 print("1. works array")
