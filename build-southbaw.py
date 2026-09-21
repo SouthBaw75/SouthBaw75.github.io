@@ -61,6 +61,7 @@ PROJECTS = [
     # hosted in this repo under aegis/ rather than on netlify
     ("26", "26", "AEGIS",            "ORBITAL DEFENSE",           "game", "https://briananthonysonnier.com/aegis/",                 "aegis.jpg"),
     ("27", "27", "WILDWOOD",         "FOREST SURVIVAL",           "game", "https://briananthonysonnier.com/wildwood/",              "wildwood.jpg"),
+    ("28", "28", "BIOQUADICAL",      "MICROORGANISM SIM",         "game", "https://bioquadical-x2.bsonnier75.workers.dev/",         "bioquadical.jpg"),
     # apps and tools
     ("14", "14", "CAMPFIRE",         "PRIVATE SOCIAL APP",        "app",  "https://campfire-circles.netlify.app/",                  "campfire.jpg"),
     ("15", "15", "TIDAL PM",         "PROJECT MANAGEMENT",        "app",  "https://tidal-pm.netlify.app/",                          "tidal.jpg"),
